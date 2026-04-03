@@ -80,9 +80,29 @@ header {
 .btn-google:hover { background: #f0f0f0; }
 .btn-ghost { background: transparent; color: var(--muted2); border: 1px solid var(--border2); }
 .btn-ghost:hover { border-color: var(--muted2); color: var(--text); }
+.btn-explain {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff; font-size: 11px; padding: 5px 12px; border-radius: 8px;
+  border: none; cursor: pointer; font-family: var(--sans); font-weight: 700;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: all .2s; white-space: nowrap; flex-shrink: 0;
+}
+.btn-explain:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(124,58,237,.4); }
+.btn-explain:disabled { opacity: .5; pointer-events: none; }
 .btn-sm { padding: 7px 14px; font-size: 12px; }
 .btn:active { transform: scale(.97); }
 .btn:disabled { opacity:.5; pointer-events:none; }
+
+/* ── EXPLAIN RESULT inline style ──────────────────────────────── */
+.btn-explain-inline {
+  background: linear-gradient(135deg, #7c3aed22, #a855f722);
+  color: #a855f7; font-size: 12px; padding: 8px 16px; border-radius: 10px;
+  border: 1px solid #7c3aed55; cursor: pointer; font-family: var(--sans); font-weight: 700;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all .2s; margin-top: 14px;
+}
+.btn-explain-inline:hover { background: linear-gradient(135deg, #7c3aed44, #a855f744); border-color: #a855f7; }
+
 .section-title {
   display: flex; align-items: center; gap: 10px;
   font-size: 11px; font-family: var(--mono);
@@ -125,16 +145,21 @@ header {
   border-radius: 50%; animation: spin .6s linear infinite;
 }
 @keyframes spin { to{ transform:rotate(360deg); } }
+
+/* ── Email list ─────────────────────────────────────────────── */
 .email-list { display: flex; flex-direction: column; gap: 8px; }
 .email-item {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 14px 16px;
-  display: flex; align-items: flex-start; gap: 14px;
+  border-radius: var(--r); overflow: hidden;
   cursor: default; transition: border-color .2s;
 }
 .email-item:hover { border-color: var(--border2); }
 .email-item.phishing { border-left: 3px solid var(--danger); }
 .email-item.safe     { border-left: 3px solid var(--safe); }
+.email-main {
+  padding: 14px 16px;
+  display: flex; align-items: flex-start; gap: 14px;
+}
 .email-verdict-icon { font-size: 20px; flex-shrink:0; padding-top:2px; }
 .email-body { flex:1; min-width:0; }
 .email-subject {
@@ -149,15 +174,89 @@ header {
   font-size: 12px; color: var(--muted2); overflow:hidden; text-overflow:ellipsis;
   display: -webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
+.email-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .email-badge {
-  flex-shrink:0; align-self:center;
   font-size: 10px; font-weight: 700; font-family: var(--mono);
   padding: 4px 10px; border-radius: 99px;
   text-transform: uppercase; letter-spacing:.5px;
 }
 .badge-phish { background: rgba(255,59,107,.15); color:var(--danger); }
 .badge-safe  { background: rgba(0,224,150,.12);  color:var(--safe);   }
-.conf-small  { font-size:10px; color:var(--muted); margin-top:3px; }
+.conf-small  { font-size:10px; color:var(--muted); }
+
+/* ── Explain Panel (inline under email) ──────────────────────── */
+.explain-panel {
+  display: none; border-top: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(124,58,237,.06), rgba(168,85,247,.04));
+  padding: 20px;
+  animation: slideDown .3s ease;
+}
+.explain-panel.open { display: block; }
+@keyframes slideDown { from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none} }
+.explain-loading {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--muted2);
+}
+.explain-loading .mini-spinner { border-top-color: #a855f7; }
+.explain-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+}
+.explain-header .gemini-badge {
+  font-size: 10px; font-family: var(--mono); font-weight: 700;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff; padding: 3px 9px; border-radius: 6px; letter-spacing: .5px;
+}
+.explain-verdict {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  line-height: 1.4; flex: 1;
+}
+.danger-badge {
+  font-size: 10px; font-weight: 700; font-family: var(--mono);
+  padding: 3px 10px; border-radius: 6px; text-transform: uppercase;
+}
+.danger-HIGH   { background: rgba(255,59,107,.2);  color: var(--danger); }
+.danger-MEDIUM { background: rgba(255,176,32,.2);  color: var(--warn); }
+.danger-LOW    { background: rgba(0,224,150,.15);  color: var(--safe); }
+.explain-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;
+}
+@media(max-width:600px){ .explain-grid { grid-template-columns: 1fr; } }
+.explain-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px;
+}
+.explain-card h4 {
+  font-size: 10px; font-family: var(--mono); color: var(--muted);
+  letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.explain-card ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.explain-card ul li {
+  font-size: 12px; color: var(--muted2); line-height: 1.5;
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.explain-card ul li::before { content: '▸'; color: var(--danger); flex-shrink: 0; font-size: 10px; margin-top: 2px; }
+.explain-card p  { font-size: 12px; color: var(--muted2); line-height: 1.6; }
+.explain-card.full-width { grid-column: 1 / -1; }
+.explain-tip {
+  background: linear-gradient(135deg, rgba(0,229,255,.08), rgba(0,229,255,.03));
+  border: 1px solid rgba(0,229,255,.2); border-radius: 10px;
+  padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start;
+  margin-top: 2px;
+}
+.explain-tip .tip-icon { font-size: 16px; flex-shrink: 0; }
+.explain-tip p { font-size: 12px; color: var(--muted2); line-height: 1.6; }
+.explain-tip strong { color: var(--accent); }
+.explain-action {
+  background: linear-gradient(135deg, rgba(255,59,107,.08), rgba(255,59,107,.03));
+  border: 1px solid rgba(255,59,107,.2); border-radius: 10px;
+  padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start;
+}
+.explain-action .act-icon { font-size: 16px; flex-shrink: 0; }
+.explain-action p { font-size: 12px; color: var(--muted2); line-height: 1.6; }
+.explain-action strong { color: var(--danger); }
+
+/* ── Tabs ────────────────────────────────────────────────────── */
 .tabs-bar {
   display: flex; gap: 4px; background: var(--card);
   border: 1px solid var(--border); border-radius: var(--r);
@@ -195,6 +294,8 @@ header {
 .drop-zone p  { font-size:12px; color:var(--muted); }
 #ocr-file-input { display:none; }
 #ocr-preview { display:none; max-width:100%; border-radius:8px; border:1px solid var(--border); margin-bottom:14px; }
+
+/* ── Result boxes ────────────────────────────────────────────── */
 .result-box {
   display:none; border-radius:var(--r); border: 1px solid var(--border);
   padding: 22px; margin-top: 18px; animation: fadeUp .3s ease;
@@ -223,6 +324,27 @@ header {
   max-height:120px; overflow-y:auto; margin-top:12px;
   white-space: pre-wrap; word-break:break-word;
 }
+
+/* ── Inline explain panel for manual results ─────────────────── */
+.result-explain-panel {
+  display: none; border-top: 1px solid var(--border);
+  margin-top: 16px; padding-top: 16px; animation: fadeUp .3s ease;
+}
+.result-explain-panel.open { display: block; }
+
+/* ── URL features row ────────────────────────────────────────── */
+.features-row {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+}
+.feat-chip {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 5px 11px;
+  font-size: 11px; font-family: var(--mono); color: var(--muted2);
+}
+.feat-chip.bad { border-color: rgba(255,59,107,.4); color: var(--danger); background: rgba(255,59,107,.08); }
+.feat-chip.good { border-color: rgba(0,224,150,.3); color: var(--safe); background: rgba(0,224,150,.07); }
+
+/* ── Test chips ──────────────────────────────────────────────── */
 .test-case-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
 .tc-chip {
   display:inline-flex; align-items:center; gap:5px;
@@ -256,6 +378,44 @@ footer {
   opacity:0; pointer-events:none; transition:opacity .3s; max-width:320px;
 }
 #toast.show { opacity:1; pointer-events:auto; }
+
+/* ── AI Explainer Modal ──────────────────────────────────────── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center; padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 16px; width: 100%; max-width: 680px;
+  max-height: 88vh; overflow-y: auto;
+  animation: modalPop .25s ease;
+}
+@keyframes modalPop { from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)} }
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 22px 16px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--card); z-index: 2;
+}
+.modal-title { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 800; }
+.modal-title .gemini-badge {
+  font-size: 9px; font-family: var(--mono); font-weight: 700;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff; padding: 3px 8px; border-radius: 5px; letter-spacing: .5px;
+}
+.modal-close {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 22px; padding: 0 4px; line-height: 1; transition: color .2s;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px 22px 24px; }
+.modal-loading {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px; padding: 40px 20px; color: var(--muted2);
+}
+.modal-loading .big-spinner { border-top-color: #a855f7; }
+.modal-loading p { font-size: 13px; animation: pulse 1.5s ease infinite; }
 </style>
 </head>
 <body>
@@ -362,7 +522,7 @@ footer {
 <!-- OCR TAB -->
 <div class="tab-pane" id="pane-ocr">
   <p style="font-size:13px;color:var(--muted2);margin-bottom:16px;line-height:1.6">
-    Upload a screenshot of a suspicious email. The system will extract text using OCR and analyze it for phishing indicators — perfect when you can't copy the text directly (e.g., Outlook, mobile screenshots).
+    Upload a screenshot of a suspicious email. The system will extract text using OCR and analyze it for phishing indicators.
   </p>
   <div class="drop-zone" id="drop-zone"
        onclick="document.getElementById('ocr-file-input').click()"
@@ -382,8 +542,27 @@ footer {
 
 </div><!-- /wrap -->
 
+<!-- ── AI EXPLAIN MODAL (for Gmail emails) ── -->
+<div class="modal-overlay" id="explain-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span>🧠 AI Explanation</span>
+        <span class="gemini-badge">GEMINI AI</span>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <div class="modal-loading">
+        <div class="big-spinner"></div>
+        <p>Gemini is analyzing the threat…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <footer>
-  PhishGuard · Logistic Regression + Multinomial Naive Bayes · Flask + Tesseract OCR<br/>
+  PhishGuard · Logistic Regression + Multinomial Naive Bayes + Gemini AI · Flask + Tesseract OCR<br/>
   <span style="color:var(--border2)">─────────────────────────────</span><br/>
   Your emails are never stored. All analysis happens locally on your server.
 </footer>
@@ -436,17 +615,56 @@ function clearResult(id) {
   const el = document.getElementById(id+'-result');
   el.className = 'result-box'; el.innerHTML = '';
 }
-function renderResult(id, data, showFeatures) {
+
+function renderResult(id, data, extraData) {
   const el  = document.getElementById(id+'-result');
   const isP = data.prediction === 'phishing';
   el.className = `result-box show ${data.prediction}`;
 
-  // OCR extracted text preview
+  // URL features chips
+  let featHtml = '';
+  if (data.features) {
+    const f = data.features;
+    featHtml = `<div class="features-row">
+      <span class="feat-chip ${f.uses_https?'good':'bad'}">${f.uses_https?'✓':'✗'} HTTPS</span>
+      <span class="feat-chip ${f.has_ip?'bad':'good'}">${f.has_ip?'⚠ IP Address':'✓ Domain'}</span>
+      <span class="feat-chip ${f.length>75?'bad':''}">${f.length} chars</span>
+      <span class="feat-chip ${f.hyphens>3?'bad':''}">${f.hyphens} hyphens</span>
+      <span class="feat-chip ${f.dots>4?'bad':''}">${f.dots} dots</span>
+      <span class="feat-chip ${f.digit_ratio>0.2?'bad':''}">${Math.round(f.digit_ratio*100)}% digits</span>
+    </div>`;
+  }
+
+  // Red flags from URL analysis
+  let flagsHtml = '';
+  if (data.red_flags && data.red_flags.length) {
+    flagsHtml = `<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-bottom:8px">RED FLAGS DETECTED</div>
+      ${data.red_flags.map(f=>`<div style="font-size:12px;color:var(--danger);margin-bottom:5px;display:flex;gap:8px"><span>⚠</span><span>${escHtml(f)}</span></div>`).join('')}
+    </div>`;
+  }
+
+  // OCR text preview
   let ocrHtml = '';
   if (data.ocr_text) {
     ocrHtml = `<div style="font-size:12px;color:var(--muted);margin-bottom:5px">Extracted text (OCR):</div>
       <div class="ocr-text-preview">${escHtml(data.ocr_text)}</div>`;
   }
+
+  // Determine explain endpoint and payload
+  const explainEndpoint = id === 'url' ? '/explain/url'
+                        : id === 'ocr'  ? '/explain/text'
+                        : '/explain/text';
+  const explainPayload = id === 'url'
+    ? { url: document.getElementById('url-input').value, prediction: data.prediction, confidence: data.confidence }
+    : id === 'ocr'
+    ? { text: data.ocr_text || '', prediction: data.prediction, confidence: data.confidence, source: 'screenshot' }
+    : { text: document.getElementById('text-input').value, prediction: data.prediction, confidence: data.confidence, source: 'email/sms' };
+
+  const explainBtnHtml = isP ? `
+    <button class="btn-explain-inline" onclick="loadInlineExplain('${id}', '${explainEndpoint}', ${JSON.stringify(JSON.stringify(explainPayload))})">
+      🧠 Explain with AI &nbsp;<span style="font-size:10px;opacity:.7">Gemini</span>
+    </button>` : '';
 
   el.innerHTML = `
     <div class="result-head">
@@ -460,9 +678,34 @@ function renderResult(id, data, showFeatures) {
       <div class="conf-row"><span>Model Confidence</span><span>${data.confidence}%</span></div>
       <div class="bar-bg"><div class="bar-fill" style="width:${data.confidence}%"></div></div>
     </div>
+    ${featHtml}
+    ${flagsHtml}
     ${ocrHtml}
+    ${explainBtnHtml}
+    <div class="result-explain-panel" id="${id}-explain-inline"></div>
   `;
 }
+
+// ── Inline explain for manual tabs ────────────────────────────
+async function loadInlineExplain(id, endpoint, payloadStr) {
+  const panel = document.getElementById(id + '-explain-inline');
+  panel.classList.add('open');
+  panel.innerHTML = `<div class="explain-loading"><div class="mini-spinner" style="border-top-color:#a855f7"></div><span style="font-size:13px;color:var(--muted2)">Gemini is analyzing…</span></div>`;
+
+  const payload = JSON.parse(payloadStr);
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    panel.innerHTML = buildExplainHTML(d);
+  } catch(e) {
+    panel.innerHTML = `<p style="color:var(--danger);font-size:13px">⚠️ Explanation failed: ${escHtml(e.message)}</p>`;
+  }
+}
+
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -479,7 +722,7 @@ async function analyzeURL() {
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    renderResult('url', d, false);
+    renderResult('url', d);
   } catch(e) { showError('url-result', e.message); }
 }
 
@@ -495,11 +738,11 @@ async function analyzeText() {
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    renderResult('text', d, false);
+    renderResult('text', d);
   } catch(e) { showError('text-result', e.message); }
 }
 
-// ── OCR ── ROUTE: POST /predict/screenshot (multipart) ────────
+// ── OCR ── ROUTE: POST /predict/screenshot ─────────────────────
 let ocrFile = null;
 
 function handleFileSelect(e) { const f = e.target.files[0]; if (f) loadOCRFile(f); }
@@ -539,7 +782,7 @@ async function analyzeScreenshot() {
     const r = await fetch('/predict/screenshot', { method:'POST', body: fd });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    renderResult('ocr', d, false);   // d.ocr_text shown inside renderResult
+    renderResult('ocr', d);
   } catch(e) { showError('ocr-result', e.message); }
 }
 
@@ -559,14 +802,12 @@ async function startGmailScan(max=30) {
 
     if (d.error) { toast('Gmail error: ' + d.error); return; }
 
-    // Update stats
     document.getElementById('s-total').textContent = d.total;
     document.getElementById('s-phish').textContent = d.phishing_count;
     document.getElementById('s-safe').textContent  = d.safe_count;
     document.getElementById('s-rate').textContent  = d.phishing_rate + '%';
     document.getElementById('stats-row').style.display = 'grid';
 
-    // Render email list
     const list = document.getElementById('email-list');
     if (!d.emails || d.emails.length === 0) {
       list.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">No emails found.</p>';
@@ -574,36 +815,168 @@ async function startGmailScan(max=30) {
     }
 
     const sorted = [...d.emails].sort((a,b) => b.is_phishing - a.is_phishing);
-    list.innerHTML = sorted.map(em => {
-      const conf       = em.text_result?.confidence || 0;
-      const isSpam     = em.folder === 'SPAM';
+    list.innerHTML = sorted.map((em, idx) => {
+      const conf    = em.text_result?.confidence || 0;
+      const isSpam  = em.folder === 'SPAM';
+      const isPhish = em.is_phishing;
       const folderBadge = isSpam
-        ? `<span style="font-size:10px;font-family:var(--mono);background:rgba(255,176,32,.15);color:var(--warn);border:1px solid rgba(255,176,32,.3);padding:2px 7px;border-radius:4px;margin-left:6px">SPAM FOLDER</span>`
+        ? `<span style="font-size:10px;font-family:var(--mono);background:rgba(255,176,32,.15);color:var(--warn);border:1px solid rgba(255,176,32,.3);padding:2px 7px;border-radius:4px;margin-left:6px">SPAM</span>`
         : '';
+
+      const explainBtn = isPhish
+        ? `<button class="btn-explain" onclick="openEmailExplain(${idx})" title="AI Explanation">
+             🧠 Explain
+           </button>`
+        : '';
+
       return `
-        <div class="email-item ${em.is_phishing?'phishing':'safe'}">
-          <div class="email-verdict-icon">${em.is_phishing?'🚨':'✅'}</div>
-          <div class="email-body">
-            <div class="email-subject">${escHtml(em.subject)}${folderBadge}</div>
-            <div class="email-meta">${escHtml(em.sender)} · ${escHtml(em.date.slice(0,16))}</div>
-            <div class="email-snippet">${escHtml(em.snippet)}</div>
-            ${em.urls_found && em.urls_found.length ?
-              `<div class="conf-small">🔗 URLs found: ${em.urls_found.length}</div>` : ''}
-          </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-            <div class="email-badge ${em.is_phishing?'badge-phish':'badge-safe'}">
-              ${em.is_phishing?'⚠️ PHISH':'✓ SAFE'}
+        <div class="email-item ${isPhish?'phishing':'safe'}" id="email-item-${idx}">
+          <div class="email-main">
+            <div class="email-verdict-icon">${isPhish?'🚨':'✅'}</div>
+            <div class="email-body">
+              <div class="email-subject">${escHtml(em.subject)}${folderBadge}</div>
+              <div class="email-meta">${escHtml(em.sender)} · ${escHtml(em.date.slice(0,16))}</div>
+              <div class="email-snippet">${escHtml(em.snippet)}</div>
+              ${em.urls_found && em.urls_found.length ?
+                `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">🔗 ${em.urls_found.length} URL${em.urls_found.length>1?'s':''} found</div>` : ''}
             </div>
-            <div class="conf-small">${conf}%</div>
+            <div class="email-actions">
+              <div class="email-badge ${isPhish?'badge-phish':'badge-safe'}">
+                ${isPhish?'⚠ PHISH':'✓ SAFE'}
+              </div>
+              <div class="conf-small">${conf}%</div>
+              ${explainBtn}
+            </div>
           </div>
+          <div class="explain-panel" id="explain-panel-${idx}"></div>
         </div>`;
     }).join('');
+
+    // Store email data for later explain calls
+    window._emailData = sorted;
 
   } catch(e) {
     document.getElementById('scan-progress').classList.remove('show');
     toast('Scan failed: ' + e.message);
   }
 }
+
+// ── Open email explain (inline panel under email) ──────────────
+async function openEmailExplain(idx) {
+  const panel = document.getElementById(`explain-panel-${idx}`);
+  const em    = window._emailData[idx];
+
+  if (panel.classList.contains('open')) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  panel.classList.add('open');
+  panel.innerHTML = `<div class="explain-loading">
+    <div class="mini-spinner" style="border-top-color:#a855f7"></div>
+    <span>Gemini is analyzing this threat…</span>
+  </div>`;
+
+  try {
+    const r = await fetch('/explain/email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        subject:      em.subject,
+        sender:       em.sender,
+        snippet:      em.snippet,
+        body_preview: em.body_preview || em.snippet,
+        urls_found:   em.urls_found || [],
+        confidence:   em.text_result?.confidence || 0,
+        folder:       em.folder,
+      })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    panel.innerHTML = buildExplainHTML(d, em);
+  } catch(e) {
+    panel.innerHTML = `<div style="padding:12px;color:var(--danger);font-size:13px">⚠️ ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Build explain HTML from Gemini response ────────────────────
+function buildExplainHTML(d, emailData) {
+  const dlevel = d.danger_level || 'HIGH';
+
+  // Red flags list
+  const flagItems = (d.red_flags || []).map(f =>
+    `<li>${escHtml(f)}</li>`).join('');
+
+  // Psychological tricks (only for text/email)
+  const tricksSection = d.psychological_tricks ? `
+    <div class="explain-card">
+      <h4>🎭 Psychological Tricks Used</h4>
+      <ul>${(d.psychological_tricks||[]).map(t=>`<li>${escHtml(t)}</li>`).join('')}</ul>
+    </div>` : '';
+
+  // How to verify (email) or safe alternative (URL)
+  const verifyContent = d.how_to_verify_legitimacy || d.how_to_verify || d.safe_alternative || '';
+
+  // What the attacker wants
+  const attackerWants = d.what_attacker_wants || d.what_happens_if_clicked || '';
+
+  // Tip content
+  const tipContent = d.how_to_spot_next_time || d.tip_for_future || d.educational_insight || '';
+
+  // Action content
+  const actionContent = d.what_to_do || '';
+
+  return `
+    <div class="explain-header">
+      <span class="gemini-badge">GEMINI AI</span>
+      <div class="explain-verdict">${escHtml(d.verdict_summary || '')}</div>
+      <span class="danger-badge danger-${dlevel}">${dlevel}</span>
+    </div>
+
+    <div class="explain-grid">
+      <div class="explain-card">
+        <h4>🚩 Red Flags Detected</h4>
+        <ul>${flagItems || '<li>Pattern analysis flagged this content</li>'}</ul>
+      </div>
+
+      <div class="explain-card">
+        <h4>🎯 Attacker's Goal</h4>
+        <p>${escHtml(attackerWants)}</p>
+        ${verifyContent ? `<p style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><strong style="color:var(--accent);font-size:11px;font-family:var(--mono)">HOW TO VERIFY</strong><br/><span style="font-size:12px">${escHtml(verifyContent)}</span></p>` : ''}
+      </div>
+
+      ${tricksSection}
+    </div>
+
+    ${actionContent ? `
+    <div class="explain-action">
+      <span class="act-icon">🛑</span>
+      <p><strong>What to do right now:</strong> ${escHtml(actionContent)}</p>
+    </div>` : ''}
+
+    ${tipContent ? `
+    <div class="explain-tip" style="margin-top:12px">
+      <span class="tip-icon">💡</span>
+      <p><strong>Remember for next time:</strong> ${escHtml(tipContent)}</p>
+    </div>` : ''}
+
+    ${d.danger_reason ? `
+    <div style="margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--mono);padding:8px 12px;background:var(--surface);border-radius:8px">
+      DANGER LEVEL ${dlevel}: ${escHtml(d.danger_reason)}
+    </div>` : ''}
+  `;
+}
+
+// ── Modal open/close ──────────────────────────────────────────
+function openModal() {
+  document.getElementById('explain-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('explain-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
 // ── Auth status ── ROUTE: GET /auth/status ─────────────────────
 async function checkAuth() {
@@ -619,7 +992,6 @@ async function checkAuth() {
           <span class="user-dot"></span>
           <span>${escHtml(d.email || d.name || 'Gmail')}</span>
         </div>`;
-      // Auto-scan on redirect back from OAuth
       if (new URLSearchParams(location.search).get('gmail') === '1') {
         history.replaceState({}, '', '/');
         startGmailScan();
@@ -628,7 +1000,7 @@ async function checkAuth() {
       hr.innerHTML = `<a href="/login" class="btn btn-google btn-sm">
         <img src="https://www.google.com/favicon.ico" width="14" height="14" alt="G"/> Sign in</a>`;
     }
-  } catch(e) { /* ignore network errors on load */ }
+  } catch(e) { /* ignore */ }
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -645,12 +1017,10 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
 }
 
-// ── Enter key shortcut ─────────────────────────────────────────
 document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') analyzeURL();
 });
 
-// ── Init ───────────────────────────────────────────────────────
 checkAuth();
 </script>
 </body>

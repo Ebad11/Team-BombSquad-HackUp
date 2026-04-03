@@ -9,6 +9,7 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import google.auth.transport.requests
+import urllib.request
 
 # ── OCR: Pillow + Tesseract ──────────────────────────────────────
 try:
@@ -28,6 +29,38 @@ app.secret_key = os.environ.get("FLASK_SECRET", "CHANGE_ME_IN_PRODUCTION_abc123x
 
 BASE   = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(BASE, "models")
+
+# ════════════════════════════════════════════════════════════════
+#  GEMINI CONFIG
+# ════════════════════════════════════════════════════════════════
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCUslvc08FstP3Hg6wi-HAR2NY6RZBhLoo")
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+def call_gemini(prompt: str) -> str:
+    """Call Gemini API and return text response."""
+    try:
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 1024,
+            }
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode())
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print(f"❌ Gemini API error: {e}")
+        return None
+
 
 # ════════════════════════════════════════════════════════════════
 #  LOAD MODELS
@@ -87,26 +120,48 @@ def get_credentials():
     return creds
 
 
-# ── Used ONLY for manual /analyze/url endpoint ──────────────────
-# Exactly 10 features to match the trained MinMaxScaler
 def extract_url_features(url: str) -> list:
     digits = sum(c.isdigit() for c in url)
     return [
-        len(url),                                                      # 1. URL length
-        url.count("."),                                                # 2. dots
-        url.count("-"),                                                # 3. hyphens
-        url.count("/"),                                                # 4. slashes
-        url.count("@"),                                                # 5. @ symbol
-        url.count("?"),                                                # 6. question marks
-        url.count("="),                                                # 7. equals signs
-        1 if re.search(r"\d+\.\d+\.\d+\.\d+", url) else 0,          # 8. has IP address
-        1 if url.lower().startswith("https") else 0,                  # 9. uses HTTPS
-        round(digits / max(len(url), 1), 4),                          # 10. digit ratio
+        len(url),
+        url.count("."),
+        url.count("-"),
+        url.count("/"),
+        url.count("@"),
+        url.count("?"),
+        url.count("="),
+        1 if re.search(r"\d+\.\d+\.\d+\.\d+", url) else 0,
+        1 if url.lower().startswith("https") else 0,
+        round(digits / max(len(url), 1), 4),
     ]
 
 
+def get_url_red_flags(url: str) -> list:
+    """Extract human-readable red flags from a URL."""
+    flags = []
+    if re.search(r"\d+\.\d+\.\d+\.\d+", url):
+        flags.append("Uses raw IP address instead of domain name")
+    if not url.lower().startswith("https"):
+        flags.append("Not using HTTPS (insecure connection)")
+    if url.count("-") > 3:
+        flags.append(f"Excessive hyphens ({url.count('-')}) in URL — common phishing tactic")
+    if len(url) > 75:
+        flags.append(f"Unusually long URL ({len(url)} characters)")
+    if url.count(".") > 4:
+        flags.append(f"Too many subdomains ({url.count('.')} dots)")
+    if "@" in url:
+        flags.append("Contains @ symbol — hides the real destination")
+    suspicious_words = ["login", "verify", "secure", "update", "confirm", "account", "bank", "paypal", "amazon"]
+    found = [w for w in suspicious_words if w in url.lower()]
+    if found:
+        flags.append(f"Contains urgency/trust keywords: {', '.join(found)}")
+    digit_ratio = sum(c.isdigit() for c in url) / max(len(url), 1)
+    if digit_ratio > 0.2:
+        flags.append(f"High digit ratio ({round(digit_ratio*100)}%) — typical of auto-generated phishing domains")
+    return flags
+
+
 def decode_body(payload):
-    """Recursively extract plain-text body from a Gmail payload."""
     if "parts" in payload:
         for part in payload["parts"]:
             if part.get("mimeType") == "text/plain":
@@ -213,8 +268,6 @@ def auth_status():
 
 # ════════════════════════════════════════════════════════════════
 #  GMAIL — SCAN
-#  ✅ Uses TEXT MODEL ONLY for verdict (no URL model in scan)
-#     URL model is reserved for manual /analyze/url tab only
 # ════════════════════════════════════════════════════════════════
 
 @app.route("/gmail/scan")
@@ -281,7 +334,6 @@ def gmail_scan():
         body            = decode_body(msg_data.get("payload", {}))
         text_to_analyze = (body or snippet or subject)[:1000]
 
-        # ── Text model verdict (only model used for Gmail scan) ──
         try:
             vec        = tfidf.transform([text_to_analyze])
             pred_text  = int(text_model.predict(vec)[0])
@@ -290,26 +342,25 @@ def gmail_scan():
         except Exception:
             pred_text = 0; text_conf = 0.0
 
-        # ── Collect URLs for display only (not used for verdict) ──
         urls_found = re.findall(r'https?://[^\s<>"\']+', snippet + " " + body)
         urls_found = list(set(urls_found))[:5]
 
-        # ── Verdict: text model + SPAM folder only ──
         in_spam     = (folder == "SPAM")
         is_phishing = (pred_text == 1) or in_spam
         if is_phishing:
             phishing_count += 1
 
         emails.append({
-            "id":          msg_meta["id"],
-            "subject":     subject,
-            "sender":      sender,
-            "date":        date,
-            "snippet":     snippet[:200],
-            "folder":      folder,
-            "is_phishing": is_phishing,
-            "urls_found":  urls_found,
-            "text_result": {"confidence": text_conf},
+            "id":             msg_meta["id"],
+            "subject":        subject,
+            "sender":         sender,
+            "date":           date,
+            "snippet":        snippet[:200],
+            "body_preview":   text_to_analyze[:500],
+            "folder":         folder,
+            "is_phishing":    is_phishing,
+            "urls_found":     urls_found,
+            "text_result":    {"confidence": text_conf},
         })
 
     safe_count    = len(emails) - phishing_count
@@ -326,7 +377,228 @@ def gmail_scan():
 
 
 # ════════════════════════════════════════════════════════════════
-#  MANUAL — URL  (URL model used here only)
+#  EXPLAIN — EMAIL (Gemini powered)
+# ════════════════════════════════════════════════════════════════
+
+@app.route("/explain/email", methods=["POST"])
+def explain_email():
+    data    = request.get_json()
+    subject = (data or {}).get("subject", "")
+    sender  = (data or {}).get("sender", "")
+    snippet = (data or {}).get("snippet", "")
+    body    = (data or {}).get("body_preview", "")
+    urls    = (data or {}).get("urls_found", [])
+    conf    = (data or {}).get("confidence", 0)
+    folder  = (data or {}).get("folder", "INBOX")
+
+    prompt = f"""You are a cybersecurity expert and educator helping regular users understand phishing threats.
+
+Analyze this email and provide a clear, educational explanation for a non-technical person.
+
+EMAIL DETAILS:
+- Subject: {subject}
+- Sender: {sender}
+- Folder: {folder}
+- AI Confidence it's phishing: {conf}%
+- URLs found: {', '.join(urls) if urls else 'None'}
+- Content preview: {(body or snippet)[:400]}
+
+Respond ONLY with a valid JSON object in this exact format (no markdown, no extra text):
+{{
+  "verdict_summary": "One punchy sentence explaining why this is phishing",
+  "red_flags": [
+    "Specific red flag 1 found in this email",
+    "Specific red flag 2 found in this email",
+    "Specific red flag 3 found in this email"
+  ],
+  "what_attacker_wants": "What the attacker is trying to steal or achieve",
+  "what_to_do": "Specific action the user should take right now",
+  "how_to_spot_next_time": "One key lesson to remember for future emails",
+  "danger_level": "HIGH" or "MEDIUM" or "LOW",
+  "danger_reason": "Brief reason for the danger level"
+}}"""
+
+    ai_text = call_gemini(prompt)
+
+    if not ai_text:
+        # Fallback rule-based explanation
+        flags = []
+        if "urgent" in (subject + snippet).lower() or "immediately" in (subject + snippet).lower():
+            flags.append("Uses urgency language to pressure you into acting fast")
+        if urls:
+            flags.append(f"Contains {len(urls)} suspicious link(s)")
+        if folder == "SPAM":
+            flags.append("Gmail's own filters marked this as spam")
+        if conf > 80:
+            flags.append(f"AI model is {conf}% confident this is phishing")
+
+        return jsonify({
+            "verdict_summary": "This email shows multiple signs of a phishing attempt.",
+            "red_flags": flags or ["Suspicious content pattern detected by AI", "Unusual sender behavior", "Content matches known phishing templates"],
+            "what_attacker_wants": "Likely trying to steal your login credentials or personal information.",
+            "what_to_do": "Do not click any links. Mark as spam and delete immediately.",
+            "how_to_spot_next_time": "Legitimate companies never ask for sensitive info via email urgently.",
+            "danger_level": "HIGH" if conf > 80 else "MEDIUM",
+            "danger_reason": "High AI confidence score with suspicious content patterns."
+        })
+
+    try:
+        # Strip any markdown fencing if present
+        clean = ai_text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"```[a-z]*\n?", "", clean).strip().rstrip("`").strip()
+        result = json.loads(clean)
+        return jsonify(result)
+    except Exception as e:
+        print(f"❌ Gemini JSON parse error: {e}\nRaw: {ai_text}")
+        return jsonify({
+            "verdict_summary": "This email shows signs of a phishing attempt.",
+            "red_flags": ["Suspicious sender pattern", "Content matches phishing templates", "Unusual link structure"],
+            "what_attacker_wants": "Trying to steal credentials or personal data.",
+            "what_to_do": "Do not click any links. Delete this email immediately.",
+            "how_to_spot_next_time": "Always verify sender identity through official channels.",
+            "danger_level": "HIGH",
+            "danger_reason": "Multiple phishing indicators detected."
+        })
+
+
+# ════════════════════════════════════════════════════════════════
+#  EXPLAIN — URL (Gemini powered)
+# ════════════════════════════════════════════════════════════════
+
+@app.route("/explain/url", methods=["POST"])
+def explain_url():
+    data       = request.get_json()
+    url        = (data or {}).get("url", "")
+    prediction = (data or {}).get("prediction", "phishing")
+    confidence = (data or {}).get("confidence", 0)
+
+    features   = extract_url_features(url)
+    red_flags  = get_url_red_flags(url)
+
+    feature_desc = f"""URL Analysis Features:
+- Length: {features[0]} chars
+- Dots: {features[1]}
+- Hyphens: {features[2]}
+- Slashes: {features[3]}
+- @ symbols: {features[4]}
+- Has IP address: {'Yes' if features[7] else 'No'}
+- Uses HTTPS: {'Yes' if features[8] else 'No'}
+- Digit ratio: {features[9]}"""
+
+    prompt = f"""You are a cybersecurity educator explaining phishing URLs to everyday users.
+
+URL: {url}
+AI Verdict: {prediction.upper()} ({confidence}% confidence)
+{feature_desc}
+Pre-detected red flags: {', '.join(red_flags) if red_flags else 'None obvious'}
+
+Respond ONLY with a valid JSON object (no markdown):
+{{
+  "verdict_summary": "Plain English explanation of why this URL is {'dangerous' if prediction == 'phishing' else 'safe'}",
+  "red_flags": ["Specific red flag 1", "Specific red flag 2", "Specific red flag 3"],
+  "what_happens_if_clicked": "Exactly what could happen if someone visits this URL",
+  "how_to_verify": "How a user can verify if a URL is safe before clicking",
+  "safe_alternative": "What the legitimate version of this URL might look like (if phishing)",
+  "danger_level": "HIGH" or "MEDIUM" or "LOW",
+  "tip_for_future": "One memorable tip to identify similar URLs"
+}}"""
+
+    ai_text = call_gemini(prompt)
+
+    if not ai_text:
+        return jsonify({
+            "verdict_summary": f"This URL appears {'dangerous' if prediction == 'phishing' else 'safe'} with {confidence}% confidence.",
+            "red_flags": red_flags or ["No obvious red flags detected"],
+            "what_happens_if_clicked": "Could lead to credential theft or malware installation.",
+            "how_to_verify": "Hover over the link to preview the URL. Use Google Safe Browsing to check.",
+            "safe_alternative": "Always type URLs directly into your browser instead of clicking links.",
+            "danger_level": "HIGH" if confidence > 80 else "MEDIUM",
+            "tip_for_future": "Real banks and services never use IP addresses or excessive hyphens in URLs."
+        })
+
+    try:
+        clean = ai_text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"```[a-z]*\n?", "", clean).strip().rstrip("`").strip()
+        return jsonify(json.loads(clean))
+    except Exception as e:
+        print(f"❌ Gemini JSON parse error: {e}")
+        return jsonify({
+            "verdict_summary": f"URL classified as {prediction} with {confidence}% confidence.",
+            "red_flags": red_flags or ["Suspicious URL pattern"],
+            "what_happens_if_clicked": "May lead to credential theft.",
+            "how_to_verify": "Check with Google Safe Browsing.",
+            "safe_alternative": "Navigate directly to official websites.",
+            "danger_level": "HIGH" if confidence > 80 else "MEDIUM",
+            "tip_for_future": "Look for HTTPS and recognize the official domain."
+        })
+
+
+# ════════════════════════════════════════════════════════════════
+#  EXPLAIN — TEXT / OCR (Gemini powered)
+# ════════════════════════════════════════════════════════════════
+
+@app.route("/explain/text", methods=["POST"])
+def explain_text():
+    data       = request.get_json()
+    text       = (data or {}).get("text", "")
+    prediction = (data or {}).get("prediction", "phishing")
+    confidence = (data or {}).get("confidence", 0)
+    source     = (data or {}).get("source", "email/sms")  # 'email/sms' or 'screenshot'
+
+    prompt = f"""You are a cybersecurity educator. A user submitted a {source} for phishing analysis.
+
+Content: {text[:500]}
+AI Verdict: {prediction.upper()} ({confidence}% confidence)
+
+Respond ONLY with a valid JSON object (no markdown):
+{{
+  "verdict_summary": "Plain English summary of the verdict",
+  "red_flags": ["Specific red flag 1 from the actual content", "Specific red flag 2", "Specific red flag 3"],
+  "psychological_tricks": ["Trick 1 the attacker uses (e.g., urgency, fear, greed)", "Trick 2"],
+  "what_attacker_wants": "Specific goal of this phishing attempt",
+  "what_to_do": "Exactly what the user should do right now",
+  "how_to_verify_legitimacy": "How to check if this message is actually from a real organization",
+  "danger_level": "HIGH" or "MEDIUM" or "LOW",
+  "educational_insight": "One important cybersecurity lesson from this example"
+}}"""
+
+    ai_text = call_gemini(prompt)
+
+    if not ai_text:
+        return jsonify({
+            "verdict_summary": f"This {source} appears {'dangerous' if prediction == 'phishing' else 'safe'}.",
+            "red_flags": ["Suspicious language pattern", "Pressure tactics detected", "Unusual request"],
+            "psychological_tricks": ["Creates urgency to prevent careful thinking", "Impersonates trusted authority"],
+            "what_attacker_wants": "Steal personal information or account credentials.",
+            "what_to_do": "Do not respond or click any links. Report and delete.",
+            "how_to_verify_legitimacy": "Contact the organization directly through their official website.",
+            "danger_level": "HIGH" if confidence > 80 else "MEDIUM",
+            "educational_insight": "Legitimate organizations never request sensitive data via unsolicited messages."
+        })
+
+    try:
+        clean = ai_text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"```[a-z]*\n?", "", clean).strip().rstrip("`").strip()
+        return jsonify(json.loads(clean))
+    except Exception as e:
+        print(f"❌ Gemini JSON parse error: {e}")
+        return jsonify({
+            "verdict_summary": f"Content classified as {prediction}.",
+            "red_flags": ["Suspicious content detected"],
+            "psychological_tricks": ["Urgency manipulation"],
+            "what_attacker_wants": "Personal information theft.",
+            "what_to_do": "Delete and report.",
+            "how_to_verify_legitimacy": "Contact organization via official channels.",
+            "danger_level": "HIGH",
+            "educational_insight": "Always verify unexpected urgent requests."
+        })
+
+
+# ════════════════════════════════════════════════════════════════
+#  MANUAL — URL
 # ════════════════════════════════════════════════════════════════
 
 @app.route("/analyze/url", methods=["POST"])
@@ -344,10 +616,20 @@ def analyze_url():
         scaled    = url_scaler.transform([features])
         pred      = int(url_model.predict(scaled)[0])
         proba     = url_model.predict_proba(scaled)[0]
+        red_flags = get_url_red_flags(url)
         return jsonify({
             "url":        url,
             "prediction": "phishing" if pred == 1 else "safe",
             "confidence": round(float(max(proba)) * 100, 2),
+            "red_flags":  red_flags,
+            "features": {
+                "length":      features[0],
+                "dots":        features[1],
+                "hyphens":     features[2],
+                "has_ip":      bool(features[7]),
+                "uses_https":  bool(features[8]),
+                "digit_ratio": features[9],
+            }
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -386,7 +668,7 @@ def analyze_text():
 @app.route("/predict/screenshot", methods=["POST"])
 def predict_screenshot():
     if not OCR_AVAILABLE:
-        return jsonify({"error": "OCR not available — install Pillow and pytesseract, then install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki"}), 503
+        return jsonify({"error": "OCR not available — install Pillow and pytesseract"}), 503
     if text_model is None or tfidf is None:
         return jsonify({"error": "Text model not loaded"}), 503
 
