@@ -34,7 +34,7 @@ MODELS = os.path.join(BASE, "models")
 #  GEMINI CONFIG
 # ════════════════════════════════════════════════════════════════
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCUslvc08FstP3Hg6wi-HAR2NY6RZBhLoo")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBqAS17MfHWaSNC1uSvNlE89YSlLk_7EHA")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 def call_gemini(prompt: str) -> str:
