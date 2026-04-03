@@ -10,7 +10,8 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import google.auth.transport.requests
 import urllib.request
-
+import difflib
+from email.utils import parseaddr
 # ── OCR: Pillow + Tesseract ──────────────────────────────────────
 try:
     from PIL import Image
@@ -118,6 +119,60 @@ def get_credentials():
             print(f"❌ Token refresh failed: {e}")
             return None
     return creds
+
+
+def get_trusted_contacts(service) -> set:
+    trusted = set()
+    print("🔍 Fetching trusted contacts from SENT folder...")
+    try:
+        resp = service.users().messages().list(userId="me", maxResults=20, labelIds=["SENT"]).execute()
+        msgs = resp.get("messages", [])
+        for msg_meta in msgs:
+            try:
+                msg_data = service.users().messages().get(userId="me", id=msg_meta["id"], format="metadata", metadataHeaders=["To"]).execute()
+                headers = msg_data.get("payload", {}).get("headers", [])
+                for h in headers:
+                    if h["name"].lower() == "to":
+                        emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', h["value"])
+                        for e in emails:
+                            trusted.add(e.lower())
+            except Exception:
+                pass
+        print(f"✅ Found {len(trusted)} trusted contacts.")
+    except Exception as e:
+        print(f"⚠️ Failed to fetch trusted contacts: {e}")
+    return trusted
+
+
+def check_impersonation(sender: str, trusted_contacts: set) -> dict:
+    _, email_addr = parseaddr(sender)
+    email_addr = email_addr.lower()
+    
+    if not email_addr or "@" not in email_addr:
+        return {"is_impersonation": False, "score": 0, "matched_contact": None}
+        
+    username, domain = email_addr.split("@", 1)
+    
+    best_score = 0
+    best_contact = None
+    
+    for contact in trusted_contacts:
+        if "@" not in contact: continue
+        c_user, c_domain = contact.split("@", 1)
+        
+        # If the exact email matches, it's the real person, not an impersonator.
+        if domain == c_domain and username == c_user:
+            continue
+            
+        score = difflib.SequenceMatcher(None, username, c_user).ratio()
+        if score > best_score:
+            best_score = score
+            best_contact = contact
+            
+    if best_score > 0.85: # 85% similarity threshold
+        return {"is_impersonation": True, "score": round(best_score * 100, 1), "matched_contact": best_contact}
+    
+    return {"is_impersonation": False, "score": round(best_score * 100, 1), "matched_contact": None}
 
 
 def extract_url_features(url: str) -> list:
@@ -287,6 +342,8 @@ def gmail_scan():
     try:
         service = build("gmail", "v1", credentials=creds)
 
+        trusted_contacts = get_trusted_contacts(service)
+
         inbox_resp = service.users().messages().list(
             userId="me", maxResults=inbox_quota, labelIds=["INBOX"]
         ).execute()
@@ -334,6 +391,7 @@ def gmail_scan():
         body            = decode_body(msg_data.get("payload", {}))
         text_to_analyze = (body or snippet or subject)[:1000]
 
+        # 1. TEXT CHECK
         try:
             vec        = tfidf.transform([text_to_analyze])
             pred_text  = int(text_model.predict(vec)[0])
@@ -342,11 +400,29 @@ def gmail_scan():
         except Exception:
             pred_text = 0; text_conf = 0.0
 
+        # 2. URL CHECK
         urls_found = re.findall(r'https?://[^\s<>"\']+', snippet + " " + body)
         urls_found = list(set(urls_found))[:5]
+        
+        has_malicious_url = False
+        url_alerts = []
+        if url_model is not None and url_scaler is not None:
+            for u in urls_found:
+                try:
+                    f = extract_url_features(u)
+                    scaled = url_scaler.transform([f])
+                    u_pred = int(url_model.predict(scaled)[0])
+                    if u_pred == 1:
+                        has_malicious_url = True
+                        url_alerts.append(u)
+                except Exception:
+                    pass
+
+        # 3. IMPERSONATION CHECK
+        impersonation_result = check_impersonation(sender, trusted_contacts)
 
         in_spam     = (folder == "SPAM")
-        is_phishing = (pred_text == 1) or in_spam
+        is_phishing = (pred_text == 1) or in_spam or has_malicious_url or impersonation_result["is_impersonation"]
         if is_phishing:
             phishing_count += 1
 
@@ -360,7 +436,9 @@ def gmail_scan():
             "folder":         folder,
             "is_phishing":    is_phishing,
             "urls_found":     urls_found,
-            "text_result":    {"confidence": text_conf},
+            "text_result":    {"confidence": text_conf, "is_phishing": bool(pred_text == 1)},
+            "url_result":     {"has_malicious_url": has_malicious_url, "malicious_urls": url_alerts},
+            "impersonation":  impersonation_result,
         })
 
     safe_count    = len(emails) - phishing_count

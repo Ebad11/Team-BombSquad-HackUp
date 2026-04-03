@@ -829,6 +829,14 @@ async function startGmailScan(max=30) {
            </button>`
         : '';
 
+      const impersonationBadge = em.impersonation && em.impersonation.is_impersonation
+        ? `<div style="font-size:10px;font-family:var(--mono);background:rgba(255,59,107,.15);color:var(--danger);border:1px solid rgba(255,59,107,.3);padding:2px 7px;border-radius:4px;margin-top:4px;display:inline-block">🥸 IMPERSONATION ALERT: Looks like ${escHtml(em.impersonation.matched_contact)}</div>`
+        : '';
+
+      const urlBadge = em.url_result && em.url_result.has_malicious_url
+        ? `<div style="font-size:10px;font-family:var(--mono);background:rgba(255,59,107,.15);color:var(--danger);border:1px solid rgba(255,59,107,.3);padding:2px 7px;border-radius:4px;margin-top:4px;display:inline-block">🔗 MALICIOUS URL FOUND</div>`
+        : '';
+
       return `
         <div class="email-item ${isPhish?'phishing':'safe'}" id="email-item-${idx}">
           <div class="email-main">
@@ -839,6 +847,8 @@ async function startGmailScan(max=30) {
               <div class="email-snippet">${escHtml(em.snippet)}</div>
               ${em.urls_found && em.urls_found.length ?
                 `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">🔗 ${em.urls_found.length} URL${em.urls_found.length>1?'s':''} found</div>` : ''}
+              ${impersonationBadge}
+              ${urlBadge}
             </div>
             <div class="email-actions">
               <div class="email-badge ${isPhish?'badge-phish':'badge-safe'}">
