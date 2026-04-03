@@ -2,8 +2,8 @@
  * BombSquad Phishing Scanner - Gmail Add-on
  */
 
-var NGROK_URL = "https://loose-moles-turn.loca.lt"; // Setup your localtunnel URL here!
-var GEMINI_API_KEY = "AIzaSyDfFdW-G5u0Z7QoPydxxGgPU-r5lle2OJI"; 
+var NGROK_URL = "https://yellow-clocks-camp.loca.lt"; // Setup your localtunnel URL here!
+var GEMINI_API_KEY = "AIzaSyDVTAhPDvpzGsmLcBGFKg2ezeywpv74YYc"; 
 
 /**
  * Triggered on the homepage (no specific email opened).
@@ -64,12 +64,20 @@ function runInboxScan(count) {
     var msg = threads[i].getMessages()[0]; 
     if (!msg) continue;
     
-    var res = callFlaskModel(msg.getPlainBody());
-    if (!res.error && res.prediction === "phishing") {
+    var body = msg.getPlainBody();
+    
+    // EXTRACT URL logic for backend V3 requirement
+    var urlRegex = /(https?:\/\/[^\s]+)/g;
+    var match = body.match(urlRegex);
+    var extractedUrl = match ? match[0] : "https://no-url-provided.com";
+    
+    var res = callFlaskModel(body, extractedUrl);
+    
+    // Check if the backend flagged it as Phishing OR Suspicious
+    if (!res.error && (res.prediction === "phishing" || res.prediction === "suspicious")) {
       phishingCount++;
       phishingThreadsData.push({
-         id: threads[i].getId(),
-         msgId: msg.getId(),
+         id: threads[i].getId(), 
          subject: msg.getSubject()
       });
       cachedIds.push(threads[i].getId());
@@ -87,7 +95,7 @@ function runInboxScan(count) {
   var summarySection = CardService.newCardSection()
       .addWidget(CardService.newTextParagraph().setText("Scanned " + count + " recent emails:"))
       .addWidget(CardService.newDecoratedText().setTopLabel("Safe").setText(safeCount + " emails").setIcon(CardService.Icon.EMAIL))
-      .addWidget(CardService.newDecoratedText().setTopLabel("Phishing").setText(phishingCount + " emails").setIcon(CardService.Icon.VIDEO_PLAY)); 
+      .addWidget(CardService.newDecoratedText().setTopLabel("Suspicious/Phishing").setText(phishingCount + " emails").setIcon(CardService.Icon.VIDEO_PLAY)); 
       
   builder.addSection(summarySection);
       
@@ -171,7 +179,6 @@ function buildContextualCard(e) {
   return builder.build();
 }
 
-
 /**
  * Action: Run scan directly from the sidebar list
  */
@@ -199,19 +206,24 @@ function scanCurrentEmail(e, isAutoScan) {
   
   var combinedText = "Subject: " + subject + "\nSender: " + sender + "\n\n" + body;
   
+  // V3 ARCHITECTURE: Extract the URL from the email body to pass to the new backend pipeline
+  var urlRegex = /(https?:\/\/[^\s]+)/g;
+  var match = body.match(urlRegex);
+  var extractedUrl = match ? match[0] : "https://no-url-provided.com";
+  
   // 1. Call Flask Model
-  var result = callFlaskModel(combinedText);
+  var result = callFlaskModel(combinedText, extractedUrl);
   if (result.error) {
     return buildErrorCard(result.error);
   }
   
-  var prediction = result.prediction;
+  var prediction = result.prediction; // now possible values: "safe", "suspicious", "phishing"
   var confidence = result.confidence;
 
-  // 2. If phishing, use Explainable AI (Gemini) to explain WHY
+  // 2. If phishing or suspicious, use Explainable AI (Gemini) to explain WHY
   var xaiExplanation = "Analysis complete. No immediate threats detected by the XAI module.";
   
-  if (prediction === "phishing") {
+  if (prediction === "phishing" || prediction === "suspicious") {
     xaiExplanation = getGeminiExplanation(combinedText);
   } else {
     xaiExplanation = "This email looks safe. The tone and syntax align with typical legitimate messages.";
@@ -223,11 +235,13 @@ function scanCurrentEmail(e, isAutoScan) {
 
 /**
  * Helper: Calls your local Flask app mapped through Ngrok
+ * UPDATED for V3 Architecture (/predict endpoint and text/url payload)
  */
-function callFlaskModel(text) {
-  var url = NGROK_URL + "/predict/text";
+function callFlaskModel(text, extractedUrl) {
+  var url = NGROK_URL + "/predict";
   var payload = {
-    "text": text
+    "text": text,
+    "url": extractedUrl
   };
   
   var options = {
@@ -256,7 +270,7 @@ function callFlaskModel(text) {
 function getGeminiExplanation(emailText) {
   var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" + GEMINI_API_KEY;
   
-  var prompt = "You are a cybersecurity expert. The following email has been flagged as PHISHING by our ML model. Explain to the user WHY this is phishing in 2-3 short, easy-to-understand bullet points. Focus on teaching them red flags like urgency, suspicious links, and sender domains so they learn. Do not use markdown bolding like ** because Apps script text won't render it. Use plain text.\n\nEmail Content:\n" + emailText;
+  var prompt = "You are a cybersecurity expert. The following email has been flagged as SUSPICIOUS/PHISHING by our ML model. Explain to the user WHY this is phishing in 2-3 short, easy-to-understand bullet points. Focus on teaching them red flags like urgency, suspicious links, and sender domains so they learn. Do not use markdown bolding like ** because Apps script text won't render it. Use plain text.\n\nEmail Content:\n" + emailText;
   
   var payload = {
     "contents": [{
@@ -287,13 +301,15 @@ function getGeminiExplanation(emailText) {
 
 /**
  * Helper: Builds the UI showing the scanning result
+ * UPDATED: Handle "suspicious" intermediate category from V3
  */
 function buildResultCard(prediction, confidence, explanation, isAutoScan) {
   var builder = CardService.newCardBuilder();
   
-  var isPhishing = (prediction === "phishing");
-  var color = isPhishing ? "#d93025" : "#188038";
-  var title = isPhishing ? "⚠️ Phishing Detected" : "✅ Looks Safe";
+  var title = "✅ Looks Safe";
+  if (prediction === "phishing") title = "🚨 Phishing Detected";
+  else if (prediction === "suspicious") title = "⚠️ Suspicious Email";
+  
   var subtitle = "Confidence: " + confidence + "%";
   
   if (isAutoScan) {
@@ -329,7 +345,7 @@ function buildResultCard(prediction, confidence, explanation, isAutoScan) {
  */
 function reportFeedback(e) {
   var pred = e.parameters.pred;
-  var msg = (pred === "phishing") ? "Reported as False Positive." : "Reported as False Negative.";
+  var msg = (pred === "phishing" || pred === "suspicious") ? "Reported as False Positive." : "Reported as False Negative.";
   return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(msg + " Model memory updated (Demo)."))
       .build();
