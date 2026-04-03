@@ -19,6 +19,8 @@
   --danger:    #ff3b6b;
   --safe:      #00e096;
   --warn:      #ffb020;
+  --ai-detect: #06b6d4;
+  --ai-detect2:#0e7490;
   --text:      #e2e8f0;
   --muted:     #64748b;
   --muted2:    #94a3b8;
@@ -89,11 +91,22 @@ header {
 }
 .btn-explain:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(124,58,237,.4); }
 .btn-explain:disabled { opacity: .5; pointer-events: none; }
-.btn-sm { padding: 7px 14px; font-size: 12px; }
-.btn:active { transform: scale(.97); }
-.btn:disabled { opacity:.5; pointer-events:none; }
-
-/* ── EXPLAIN RESULT inline style ──────────────────────────────── */
+.btn-ai-detect {
+  background: linear-gradient(135deg, #06b6d444, #0e749044);
+  color: var(--ai-detect); font-size: 11px; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid #06b6d455; cursor: pointer; font-family: var(--sans); font-weight: 700;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: all .2s; white-space: nowrap; flex-shrink: 0;
+}
+.btn-ai-detect:hover { background: linear-gradient(135deg, #06b6d466, #0e749066); border-color: var(--ai-detect); transform: translateY(-1px); }
+.btn-ai-detect-inline {
+  background: linear-gradient(135deg, #06b6d422, #0e749022);
+  color: var(--ai-detect); font-size: 12px; padding: 8px 16px; border-radius: 10px;
+  border: 1px solid #06b6d455; cursor: pointer; font-family: var(--sans); font-weight: 700;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all .2s; margin-top: 10px;
+}
+.btn-ai-detect-inline:hover { background: linear-gradient(135deg, #06b6d444, #0e749044); border-color: var(--ai-detect); }
 .btn-explain-inline {
   background: linear-gradient(135deg, #7c3aed22, #a855f722);
   color: #a855f7; font-size: 12px; padding: 8px 16px; border-radius: 10px;
@@ -102,7 +115,9 @@ header {
   transition: all .2s; margin-top: 14px;
 }
 .btn-explain-inline:hover { background: linear-gradient(135deg, #7c3aed44, #a855f744); border-color: #a855f7; }
-
+.btn-sm { padding: 7px 14px; font-size: 12px; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity:.5; pointer-events:none; }
 .section-title {
   display: flex; align-items: center; gap: 10px;
   font-size: 11px; font-family: var(--mono);
@@ -145,8 +160,6 @@ header {
   border-radius: 50%; animation: spin .6s linear infinite;
 }
 @keyframes spin { to{ transform:rotate(360deg); } }
-
-/* ── Email list ─────────────────────────────────────────────── */
 .email-list { display: flex; flex-direction: column; gap: 8px; }
 .email-item {
   background: var(--card); border: 1px solid var(--border);
@@ -183,21 +196,23 @@ header {
 .badge-phish { background: rgba(255,59,107,.15); color:var(--danger); }
 .badge-safe  { background: rgba(0,224,150,.12);  color:var(--safe);   }
 .conf-small  { font-size:10px; color:var(--muted); }
-
-/* ── Explain Panel (inline under email) ──────────────────────── */
 .explain-panel {
   display: none; border-top: 1px solid var(--border);
   background: linear-gradient(135deg, rgba(124,58,237,.06), rgba(168,85,247,.04));
-  padding: 20px;
-  animation: slideDown .3s ease;
+  padding: 20px; animation: slideDown .3s ease;
 }
 .explain-panel.open { display: block; }
 @keyframes slideDown { from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none} }
+.ai-detect-panel {
+  display: none; border-top: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(6,182,212,.07), rgba(14,116,144,.04));
+  padding: 20px; animation: slideDown .3s ease;
+}
+.ai-detect-panel.open { display: block; }
 .explain-loading {
   display: flex; align-items: center; gap: 10px;
   font-size: 13px; color: var(--muted2);
 }
-.explain-loading .mini-spinner { border-top-color: #a855f7; }
 .explain-header {
   display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
 }
@@ -206,43 +221,34 @@ header {
   background: linear-gradient(135deg, #7c3aed, #a855f7);
   color: #fff; padding: 3px 9px; border-radius: 6px; letter-spacing: .5px;
 }
-.explain-verdict {
-  font-size: 14px; font-weight: 700; color: var(--text);
-  line-height: 1.4; flex: 1;
+.explain-header .ai-detect-badge {
+  font-size: 10px; font-family: var(--mono); font-weight: 700;
+  background: linear-gradient(135deg, #06b6d4, #0e7490);
+  color: #fff; padding: 3px 9px; border-radius: 6px; letter-spacing: .5px;
 }
-.danger-badge {
-  font-size: 10px; font-weight: 700; font-family: var(--mono);
-  padding: 3px 10px; border-radius: 6px; text-transform: uppercase;
-}
+.explain-verdict { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.4; flex: 1; }
+.danger-badge { font-size: 10px; font-weight: 700; font-family: var(--mono); padding: 3px 10px; border-radius: 6px; text-transform: uppercase; }
 .danger-HIGH   { background: rgba(255,59,107,.2);  color: var(--danger); }
 .danger-MEDIUM { background: rgba(255,176,32,.2);  color: var(--warn); }
 .danger-LOW    { background: rgba(0,224,150,.15);  color: var(--safe); }
-.explain-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;
-}
+.explain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media(max-width:600px){ .explain-grid { grid-template-columns: 1fr; } }
-.explain-card {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 14px;
-}
+.explain-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
 .explain-card h4 {
   font-size: 10px; font-family: var(--mono); color: var(--muted);
   letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px;
   display: flex; align-items: center; gap: 6px;
 }
 .explain-card ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.explain-card ul li {
-  font-size: 12px; color: var(--muted2); line-height: 1.5;
-  display: flex; gap: 8px; align-items: flex-start;
-}
+.explain-card ul li { font-size: 12px; color: var(--muted2); line-height: 1.5; display: flex; gap: 8px; align-items: flex-start; }
 .explain-card ul li::before { content: '▸'; color: var(--danger); flex-shrink: 0; font-size: 10px; margin-top: 2px; }
+.explain-card ul li.human-li::before { content: '✓'; color: var(--safe); }
 .explain-card p  { font-size: 12px; color: var(--muted2); line-height: 1.6; }
 .explain-card.full-width { grid-column: 1 / -1; }
 .explain-tip {
   background: linear-gradient(135deg, rgba(0,229,255,.08), rgba(0,229,255,.03));
   border: 1px solid rgba(0,229,255,.2); border-radius: 10px;
-  padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start;
-  margin-top: 2px;
+  padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; margin-top: 2px;
 }
 .explain-tip .tip-icon { font-size: 16px; flex-shrink: 0; }
 .explain-tip p { font-size: 12px; color: var(--muted2); line-height: 1.6; }
@@ -255,51 +261,44 @@ header {
 .explain-action .act-icon { font-size: 16px; flex-shrink: 0; }
 .explain-action p { font-size: 12px; color: var(--muted2); line-height: 1.6; }
 .explain-action strong { color: var(--danger); }
-
-/* ── Tabs ────────────────────────────────────────────────────── */
-.tabs-bar {
-  display: flex; gap: 4px; background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--r);
-  padding: 5px; margin-bottom: 20px;
-}
-.tab-btn {
-  flex:1; padding: 9px; border:none; border-radius: 8px;
-  background: transparent; color:var(--muted);
-  font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s;
-}
+.ai-score-block { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.ai-score-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.ai-score-num { font-size: 38px; font-weight: 800; font-family: var(--mono); line-height: 1; }
+.ai-score-num.high   { color: var(--danger); }
+.ai-score-num.medium { color: var(--warn); }
+.ai-score-num.low    { color: var(--safe); }
+.ai-verdict-pill { font-size: 11px; font-weight: 700; font-family: var(--mono); padding: 5px 12px; border-radius: 99px; text-transform: uppercase; letter-spacing: .5px; }
+.ai-verdict-LIKELY-AI    { background: rgba(255,59,107,.18);  color: var(--danger); }
+.ai-verdict-POSSIBLY-AI  { background: rgba(255,176,32,.18);  color: var(--warn); }
+.ai-verdict-LIKELY-HUMAN { background: rgba(0,224,150,.14);   color: var(--safe); }
+.ai-verdict-UNCERTAIN    { background: rgba(100,116,139,.2);  color: var(--muted2); }
+.ai-bar-bg { width:100%; height:8px; background: var(--border); border-radius:99px; overflow:hidden; }
+.ai-bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--safe), var(--warn), var(--danger)); transition: width .8s cubic-bezier(.4,0,.2,1); }
+.ai-score-sub { font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--mono); }
+.ai-model-guess { font-size: 11px; font-family: var(--mono); color: var(--ai-detect); background: rgba(6,182,212,.1); border: 1px solid rgba(6,182,212,.25); border-radius: 6px; padding: 3px 10px; display: inline-block; margin-top: 8px; }
+.ai-context-tip { background: linear-gradient(135deg, rgba(6,182,212,.08), rgba(6,182,212,.03)); border: 1px solid rgba(6,182,212,.2); border-radius: 10px; padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; margin-top: 4px; }
+.ai-context-tip .tip-icon { font-size:15px; flex-shrink:0; }
+.ai-context-tip p { font-size:12px; color:var(--muted2); line-height:1.6; }
+.ai-context-tip strong { color: var(--ai-detect); }
+.writing-style-chip { font-size: 11px; font-family: var(--mono); color: var(--muted2); background: var(--surface); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 10px; display: inline-block; margin-top: 8px; }
+.tabs-bar { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 5px; margin-bottom: 20px; }
+.tab-btn { flex:1; padding: 9px; border:none; border-radius: 8px; background: transparent; color:var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s; }
 .tab-btn.active { background:var(--accent2); color:#fff; }
 .tab-pane { display:none; }
 .tab-pane.active { display:block; }
 .field { margin-bottom: 14px; }
-.field label {
-  display:block; font-size:11px; font-family:var(--mono);
-  color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:7px;
-}
-.field input, .field textarea {
-  width:100%; background: var(--surface); border: 1px solid var(--border2);
-  border-radius: var(--r); color:var(--text);
-  font-size: 14px; padding: 12px 14px; outline: none;
-  transition: border-color .2s; font-family: inherit; resize: vertical;
-}
+.field label { display:block; font-size:11px; font-family:var(--mono); color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:7px; }
+.field input, .field textarea { width:100%; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--r); color:var(--text); font-size: 14px; padding: 12px 14px; outline: none; transition: border-color .2s; font-family: inherit; resize: vertical; }
 .field input:focus, .field textarea:focus { border-color: var(--accent); }
 .field textarea { min-height: 100px; }
-.drop-zone {
-  border: 2px dashed var(--border2); border-radius: var(--r);
-  padding: 36px 20px; text-align:center; cursor:pointer;
-  transition: all .2s; background: var(--surface); margin-bottom: 16px;
-}
+.drop-zone { border: 2px dashed var(--border2); border-radius: var(--r); padding: 36px 20px; text-align:center; cursor:pointer; transition: all .2s; background: var(--surface); margin-bottom: 16px; }
 .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(0,229,255,.04); }
 .drop-zone .dz-icon { font-size:36px; margin-bottom:10px; }
 .drop-zone h4 { font-size:14px; font-weight:700; margin-bottom:5px; }
 .drop-zone p  { font-size:12px; color:var(--muted); }
 #ocr-file-input { display:none; }
 #ocr-preview { display:none; max-width:100%; border-radius:8px; border:1px solid var(--border); margin-bottom:14px; }
-
-/* ── Result boxes ────────────────────────────────────────────── */
-.result-box {
-  display:none; border-radius:var(--r); border: 1px solid var(--border);
-  padding: 22px; margin-top: 18px; animation: fadeUp .3s ease;
-}
+.result-box { display:none; border-radius:var(--r); border: 1px solid var(--border); padding: 22px; margin-top: 18px; animation: fadeUp .3s ease; }
 @keyframes fadeUp { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none} }
 .result-box.show  { display:block; }
 .result-box.phishing { border-color:var(--danger); background:rgba(255,59,107,.05); }
@@ -317,105 +316,35 @@ header {
 .bar-fill { height:100%; border-radius:99px; transition:width .7s cubic-bezier(.4,0,.2,1); }
 .result-box.phishing .bar-fill { background: var(--danger); }
 .result-box.safe     .bar-fill { background: var(--safe);   }
-.ocr-text-preview {
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 8px; padding: 12px; font-size:12px;
-  font-family: var(--mono); color:var(--muted2);
-  max-height:120px; overflow-y:auto; margin-top:12px;
-  white-space: pre-wrap; word-break:break-word;
-}
-
-/* ── Inline explain panel for manual results ─────────────────── */
-.result-explain-panel {
-  display: none; border-top: 1px solid var(--border);
-  margin-top: 16px; padding-top: 16px; animation: fadeUp .3s ease;
-}
+.ocr-text-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size:12px; font-family: var(--mono); color:var(--muted2); max-height:120px; overflow-y:auto; margin-top:12px; white-space: pre-wrap; word-break:break-word; }
+.result-explain-panel { display: none; border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; animation: fadeUp .3s ease; }
 .result-explain-panel.open { display: block; }
-
-/* ── URL features row ────────────────────────────────────────── */
-.features-row {
-  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
-}
-.feat-chip {
-  background: var(--surface); border: 1px solid var(--border2);
-  border-radius: 8px; padding: 5px 11px;
-  font-size: 11px; font-family: var(--mono); color: var(--muted2);
-}
-.feat-chip.bad { border-color: rgba(255,59,107,.4); color: var(--danger); background: rgba(255,59,107,.08); }
-.feat-chip.good { border-color: rgba(0,224,150,.3); color: var(--safe); background: rgba(0,224,150,.07); }
-
-/* ── Test chips ──────────────────────────────────────────────── */
+.result-ai-panel { display: none; border-top: 1px solid rgba(6,182,212,.3); margin-top: 12px; padding-top: 16px; animation: fadeUp .3s ease; }
+.result-ai-panel.open { display: block; }
+.inline-btn-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+.features-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.feat-chip { background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 5px 11px; font-size: 11px; font-family: var(--mono); color: var(--muted2); }
+.feat-chip.bad  { border-color: rgba(255,59,107,.4); color: var(--danger); background: rgba(255,59,107,.08); }
+.feat-chip.good { border-color: rgba(0,224,150,.3);  color: var(--safe);   background: rgba(0,224,150,.07); }
 .test-case-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
-.tc-chip {
-  display:inline-flex; align-items:center; gap:5px;
-  background: var(--surface); border:1px solid var(--border2);
-  border-radius:6px; padding:5px 10px;
-  font-size:11px; cursor:pointer; max-width:320px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  transition: border-color .15s;
-}
+.tc-chip { display:inline-flex; align-items:center; gap:5px; background: var(--surface); border:1px solid var(--border2); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition: border-color .15s; }
 .tc-chip:hover { border-color: var(--accent); }
 .tc-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
 .phish-dot { background:var(--danger); }
 .safe-dot  { background:var(--safe); }
-footer {
-  text-align:center; padding:40px 0 0;
-  font-size:11px; font-family:var(--mono); color:var(--muted);
-  border-top:1px solid var(--border); margin-top:40px;
-  position:relative; z-index:1;
-}
-.big-spinner {
-  width:32px; height:32px; margin:10px auto;
-  border:3px solid var(--border2); border-top-color: var(--accent);
-  border-radius:50%; animation:spin .7s linear infinite;
-}
-#toast {
-  position:fixed; bottom:24px; right:24px; z-index:999;
-  background:var(--card); border:1px solid var(--border2);
-  border-radius:var(--r); padding:12px 18px;
-  font-size:13px; color:var(--text);
-  box-shadow: 0 8px 32px rgba(0,0,0,.4);
-  opacity:0; pointer-events:none; transition:opacity .3s; max-width:320px;
-}
+footer { text-align:center; padding:40px 0 0; font-size:11px; font-family:var(--mono); color:var(--muted); border-top:1px solid var(--border); margin-top:40px; position:relative; z-index:1; }
+.big-spinner { width:32px; height:32px; margin:10px auto; border:3px solid var(--border2); border-top-color: var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+#toast { position:fixed; bottom:24px; right:24px; z-index:999; background:var(--card); border:1px solid var(--border2); border-radius:var(--r); padding:12px 18px; font-size:13px; color:var(--text); box-shadow: 0 8px 32px rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:opacity .3s; max-width:320px; }
 #toast.show { opacity:1; pointer-events:auto; }
-
-/* ── AI Explainer Modal ──────────────────────────────────────── */
-.modal-overlay {
-  display: none; position: fixed; inset: 0; z-index: 500;
-  background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
-  align-items: center; justify-content: center; padding: 20px;
-}
+.modal-overlay { display: none; position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.75); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; }
 .modal-overlay.open { display: flex; }
-.modal-box {
-  background: var(--card); border: 1px solid var(--border2);
-  border-radius: 16px; width: 100%; max-width: 680px;
-  max-height: 88vh; overflow-y: auto;
-  animation: modalPop .25s ease;
-}
+.modal-box { background: var(--card); border: 1px solid var(--border2); border-radius: 16px; width: 100%; max-width: 680px; max-height: 88vh; overflow-y: auto; animation: modalPop .25s ease; }
 @keyframes modalPop { from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)} }
-.modal-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 22px 16px; border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; background: var(--card); z-index: 2;
-}
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); z-index: 2; }
 .modal-title { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 800; }
-.modal-title .gemini-badge {
-  font-size: 9px; font-family: var(--mono); font-weight: 700;
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
-  color: #fff; padding: 3px 8px; border-radius: 5px; letter-spacing: .5px;
-}
-.modal-close {
-  background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 22px; padding: 0 4px; line-height: 1; transition: color .2s;
-}
+.modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 22px; padding: 0 4px; line-height: 1; transition: color .2s; }
 .modal-close:hover { color: var(--text); }
 .modal-body { padding: 20px 22px 24px; }
-.modal-loading {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 14px; padding: 40px 20px; color: var(--muted2);
-}
-.modal-loading .big-spinner { border-top-color: #a855f7; }
-.modal-loading p { font-size: 13px; animation: pulse 1.5s ease infinite; }
 </style>
 </head>
 <body>
@@ -472,10 +401,11 @@ footer {
     <span id="scan-msg">Connecting to Gmail…</span>
   </div>
 
+  <!-- ✅ CHANGE 1: Default button now scans 10, options are 20/50 -->
   <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
-    <button class="btn btn-accent" onclick="startGmailScan()">🔍 Scan Inbox + Spam (30)</button>
+    <button class="btn btn-accent" onclick="startGmailScan()">🔍 Scan Latest 10 Emails</button>
+    <button class="btn btn-ghost btn-sm" onclick="startGmailScan(20)">Scan 20</button>
     <button class="btn btn-ghost btn-sm" onclick="startGmailScan(50)">Scan 50</button>
-    <button class="btn btn-ghost btn-sm" onclick="startGmailScan(100)">Scan 100</button>
     <a href="/logout" class="btn btn-ghost btn-sm" style="margin-left:auto">Logout</a>
   </div>
 
@@ -528,13 +458,13 @@ footer {
        onclick="document.getElementById('ocr-file-input').click()"
        ondragover="dzDragOver(event)" ondragleave="dzDragLeave()" ondrop="dzDrop(event)">
     <div class="dz-icon">📷</div>
-    <h4>Click or drag & drop a screenshot</h4>
+    <h4>Click or drag &amp; drop a screenshot</h4>
     <p>Supports PNG, JPG, WEBP · Max 10 MB</p>
   </div>
   <input type="file" id="ocr-file-input" accept="image/*" onchange="handleFileSelect(event)"/>
   <img id="ocr-preview" alt="Screenshot preview"/>
   <div style="display:flex;gap:10px;flex-wrap:wrap;">
-    <button class="btn btn-accent" id="ocr-btn" onclick="analyzeScreenshot()" disabled>🔍 Extract & Analyze</button>
+    <button class="btn btn-accent" id="ocr-btn" onclick="analyzeScreenshot()" disabled>🔍 Extract &amp; Analyze</button>
     <button class="btn btn-ghost" onclick="clearOCR()">Clear</button>
   </div>
   <div class="result-box" id="ocr-result"></div>
@@ -542,22 +472,14 @@ footer {
 
 </div><!-- /wrap -->
 
-<!-- ── AI EXPLAIN MODAL (for Gmail emails) ── -->
+<!-- ── MODAL ── -->
 <div class="modal-overlay" id="explain-modal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box">
     <div class="modal-header">
-      <div class="modal-title">
-        <span>🧠 AI Explanation</span>
-        <span class="gemini-badge">GEMINI AI</span>
-      </div>
+      <div class="modal-title"><span>🧠 AI Explanation</span></div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
-    <div class="modal-body" id="modal-body">
-      <div class="modal-loading">
-        <div class="big-spinner"></div>
-        <p>Gemini is analyzing the threat…</p>
-      </div>
-    </div>
+    <div class="modal-body" id="modal-body"></div>
   </div>
 </div>
 
@@ -566,11 +488,9 @@ footer {
   <span style="color:var(--border2)">─────────────────────────────</span><br/>
   Your emails are never stored. All analysis happens locally on your server.
 </footer>
-
 <div id="toast"></div>
 
 <script>
-// ── Test data ──────────────────────────────────────────────────
 const URL_TC = [
   { p:true,  t:"http://secure-login-verify.paypa1-account.com/update?id=9821" },
   { p:true,  t:"http://192.168.1.1/login/bankofamerica/account-verify" },
@@ -584,27 +504,30 @@ const TEXT_TC = [
   { p:false, t:"Your Amazon order has shipped and will arrive by Friday." },
 ];
 
-function buildTC(rows, inputId, resultId) {
-  return rows.map(tc => `
-    <div class="tc-chip" onclick="document.getElementById('${inputId}').value=${JSON.stringify(tc.t)};clearResult('${resultId}')">
-      <span class="tc-dot ${tc.p?'phish-dot':'safe-dot'}"></span>
-      <span>${tc.t.substring(0,60)}${tc.t.length>60?'…':''}</span>
+function buildTC(rows, containerId, inputId, clearId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = rows.map((tc, i) => `
+    <div class="tc-chip" data-idx="${i}">
+      <span class="tc-dot ${tc.p ? 'phish-dot' : 'safe-dot'}"></span>
+      <span>${escHtml(tc.t.substring(0, 60))}${tc.t.length > 60 ? '…' : ''}</span>
     </div>`).join('');
+  container.querySelectorAll('.tc-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById(inputId).value = rows[parseInt(chip.dataset.idx, 10)].t;
+      clearResult(clearId);
+    });
+  });
 }
-document.getElementById('url-tc-row').innerHTML  = buildTC(URL_TC,  'url-input',  'url');
-document.getElementById('text-tc-row').innerHTML = buildTC(TEXT_TC, 'text-input', 'text');
+buildTC(URL_TC,  'url-tc-row',  'url-input',  'url');
+buildTC(TEXT_TC, 'text-tc-row', 'text-input', 'text');
 
-// ── Tab switching ──────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['url','text','ocr'][i] === tab)
-  );
+    b.classList.toggle('active', ['url','text','ocr'][i] === tab));
   ['url','text','ocr'].forEach(id =>
-    document.getElementById('pane-'+id).classList.toggle('active', id === tab)
-  );
+    document.getElementById('pane-'+id).classList.toggle('active', id === tab));
 }
 
-// ── Result helpers ─────────────────────────────────────────────
 function showLoading(id) {
   const el = document.getElementById(id+'-result');
   el.className = 'result-box loading show';
@@ -616,12 +539,11 @@ function clearResult(id) {
   el.className = 'result-box'; el.innerHTML = '';
 }
 
-function renderResult(id, data, extraData) {
+function renderResult(id, data) {
   const el  = document.getElementById(id+'-result');
   const isP = data.prediction === 'phishing';
   el.className = `result-box show ${data.prediction}`;
 
-  // URL features chips
   let featHtml = '';
   if (data.features) {
     const f = data.features;
@@ -634,8 +556,6 @@ function renderResult(id, data, extraData) {
       <span class="feat-chip ${f.digit_ratio>0.2?'bad':''}">${Math.round(f.digit_ratio*100)}% digits</span>
     </div>`;
   }
-
-  // Red flags from URL analysis
   let flagsHtml = '';
   if (data.red_flags && data.red_flags.length) {
     flagsHtml = `<div style="margin-bottom:14px">
@@ -643,28 +563,18 @@ function renderResult(id, data, extraData) {
       ${data.red_flags.map(f=>`<div style="font-size:12px;color:var(--danger);margin-bottom:5px;display:flex;gap:8px"><span>⚠</span><span>${escHtml(f)}</span></div>`).join('')}
     </div>`;
   }
-
-  // OCR text preview
   let ocrHtml = '';
   if (data.ocr_text) {
     ocrHtml = `<div style="font-size:12px;color:var(--muted);margin-bottom:5px">Extracted text (OCR):</div>
       <div class="ocr-text-preview">${escHtml(data.ocr_text)}</div>`;
   }
 
-  // Determine explain endpoint and payload
-  const explainEndpoint = id === 'url' ? '/explain/url'
-                        : id === 'ocr'  ? '/explain/text'
-                        : '/explain/text';
-  const explainPayload = id === 'url'
-    ? { url: document.getElementById('url-input').value, prediction: data.prediction, confidence: data.confidence }
-    : id === 'ocr'
-    ? { text: data.ocr_text || '', prediction: data.prediction, confidence: data.confidence, source: 'screenshot' }
-    : { text: document.getElementById('text-input').value, prediction: data.prediction, confidence: data.confidence, source: 'email/sms' };
-
-  const explainBtnHtml = isP ? `
-    <button class="btn-explain-inline" onclick="loadInlineExplain('${id}', '${explainEndpoint}', ${JSON.stringify(JSON.stringify(explainPayload))})">
-      🧠 Explain with AI &nbsp;<span style="font-size:10px;opacity:.7">Gemini</span>
-    </button>` : '';
+  const explainBtnHtml = isP
+    ? `<button class="btn-explain-inline" data-action="explain" data-tab="${id}">🧠 Explain with AI <span style="font-size:10px;opacity:.7">Gemini</span></button>`
+    : '';
+  const aiDetectBtnHtml = (id !== 'url')
+    ? `<button class="btn-ai-detect-inline" data-action="ai-detect" data-tab="${id}">🤖 Detect AI Content</button>`
+    : '';
 
   el.innerHTML = `
     <div class="result-head">
@@ -678,73 +588,95 @@ function renderResult(id, data, extraData) {
       <div class="conf-row"><span>Model Confidence</span><span>${data.confidence}%</span></div>
       <div class="bar-bg"><div class="bar-fill" style="width:${data.confidence}%"></div></div>
     </div>
-    ${featHtml}
-    ${flagsHtml}
-    ${ocrHtml}
-    ${explainBtnHtml}
+    ${featHtml}${flagsHtml}${ocrHtml}
+    <div class="inline-btn-row">${explainBtnHtml}${aiDetectBtnHtml}</div>
     <div class="result-explain-panel" id="${id}-explain-inline"></div>
+    <div class="result-ai-panel" id="${id}-ai-inline"></div>
   `;
+  el._resultData = data;
+
+  const explainBtn = el.querySelector('[data-action="explain"]');
+  if (explainBtn) {
+    explainBtn.addEventListener('click', () => {
+      const tab = explainBtn.dataset.tab;
+      loadInlineExplain(tab, tab === 'url' ? '/explain/url' : '/explain/text', buildExplainPayload(tab, data));
+    });
+  }
+  const aiBtn = el.querySelector('[data-action="ai-detect"]');
+  if (aiBtn) {
+    aiBtn.addEventListener('click', () => loadInlineAIDetect(aiBtn.dataset.tab, buildAIDetectPayload(aiBtn.dataset.tab, data)));
+  }
 }
 
-// ── Inline explain for manual tabs ────────────────────────────
-async function loadInlineExplain(id, endpoint, payloadStr) {
+function buildExplainPayload(tab, data) {
+  if (tab === 'url') return { url: document.getElementById('url-input').value, prediction: data.prediction, confidence: data.confidence };
+  if (tab === 'ocr') return { text: data.ocr_text || '', prediction: data.prediction, confidence: data.confidence, source: 'screenshot' };
+  return { text: document.getElementById('text-input').value, prediction: data.prediction, confidence: data.confidence, source: 'email/sms' };
+}
+function buildAIDetectPayload(tab, data) {
+  return {
+    text: tab === 'ocr' ? (data.ocr_text || '') : (document.getElementById('text-input') ? document.getElementById('text-input').value : ''),
+    subject: '', sender: ''
+  };
+}
+
+async function loadInlineExplain(id, endpoint, payload) {
   const panel = document.getElementById(id + '-explain-inline');
   panel.classList.add('open');
   panel.innerHTML = `<div class="explain-loading"><div class="mini-spinner" style="border-top-color:#a855f7"></div><span style="font-size:13px;color:var(--muted2)">Gemini is analyzing…</span></div>`;
-
-  const payload = JSON.parse(payloadStr);
   try {
-    const r = await fetch(endpoint, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
+    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     panel.innerHTML = buildExplainHTML(d);
   } catch(e) {
-    panel.innerHTML = `<p style="color:var(--danger);font-size:13px">⚠️ Explanation failed: ${escHtml(e.message)}</p>`;
+    panel.innerHTML = `<p style="color:var(--danger);font-size:13px">⚠️ ${escHtml(e.message)}</p>`;
+  }
+}
+
+async function loadInlineAIDetect(id, payload) {
+  const panel = document.getElementById(id + '-ai-inline');
+  panel.classList.add('open');
+  panel.innerHTML = `<div class="explain-loading"><div class="mini-spinner" style="border-top-color:var(--ai-detect)"></div><span style="font-size:13px;color:var(--muted2)">Scanning for AI-generated content…</span></div>`;
+  try {
+    const r = await fetch('/analyze/ai-content', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    panel.innerHTML = buildAIDetectHTML(d);
+  } catch(e) {
+    panel.innerHTML = `<p style="color:var(--danger);font-size:13px">⚠️ ${escHtml(e.message)}</p>`;
   }
 }
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-// ── URL analyze ── ROUTE: POST /analyze/url ────────────────────
 async function analyzeURL() {
   const url = document.getElementById('url-input').value.trim();
   if (!url) { toast('Please enter a URL first.'); return; }
   showLoading('url');
   try {
-    const r = await fetch('/analyze/url', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ url })
-    });
+    const r = await fetch('/analyze/url', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url }) });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     renderResult('url', d);
   } catch(e) { showError('url-result', e.message); }
 }
 
-// ── Text analyze ── ROUTE: POST /analyze/text ─────────────────
 async function analyzeText() {
   const text = document.getElementById('text-input').value.trim();
   if (!text) { toast('Please enter a message first.'); return; }
   showLoading('text');
   try {
-    const r = await fetch('/analyze/text', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ text })
-    });
+    const r = await fetch('/analyze/text', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     renderResult('text', d);
   } catch(e) { showError('text-result', e.message); }
 }
 
-// ── OCR ── ROUTE: POST /predict/screenshot ─────────────────────
 let ocrFile = null;
-
 function handleFileSelect(e) { const f = e.target.files[0]; if (f) loadOCRFile(f); }
 function dzDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
 function dzDragLeave()  { document.getElementById('drop-zone').classList.remove('dragover'); }
@@ -786,8 +718,8 @@ async function analyzeScreenshot() {
   } catch(e) { showError('ocr-result', e.message); }
 }
 
-// ── Gmail scan ── ROUTE: GET /gmail/scan?max=N ─────────────────
-async function startGmailScan(max=30) {
+// ✅ CHANGE 1: Default max=10
+async function startGmailScan(max=10) {
   const prog  = document.getElementById('scan-progress');
   const msgEl = document.getElementById('scan-msg');
   prog.classList.add('show');
@@ -799,7 +731,6 @@ async function startGmailScan(max=30) {
     const r = await fetch(`/gmail/scan?max=${max}`);
     const d = await r.json();
     prog.classList.remove('show');
-
     if (d.error) { toast('Gmail error: ' + d.error); return; }
 
     document.getElementById('s-total').textContent = d.total;
@@ -817,22 +748,17 @@ async function startGmailScan(max=30) {
     const sorted = [...d.emails].sort((a,b) => b.is_phishing - a.is_phishing);
     list.innerHTML = sorted.map((em, idx) => {
       const conf    = em.text_result?.confidence || 0;
-      const isSpam  = em.folder === 'SPAM';
       const isPhish = em.is_phishing;
-      const folderBadge = isSpam
-        ? `<span style="font-size:10px;font-family:var(--mono);background:rgba(255,176,32,.15);color:var(--warn);border:1px solid rgba(255,176,32,.3);padding:2px 7px;border-radius:4px;margin-left:6px">SPAM</span>`
-        : '';
 
+      // ✅ CHANGE 2: No folder/spam badge at all
       const explainBtn = isPhish
-        ? `<button class="btn-explain" onclick="openEmailExplain(${idx})" title="AI Explanation">
-             🧠 Explain
-           </button>`
+        ? `<button class="btn-explain" data-email-idx="${idx}" data-action="explain">🧠 Explain</button>`
         : '';
+      const aiDetectBtn = `<button class="btn-ai-detect" data-email-idx="${idx}" data-action="ai-detect">🤖 AI?</button>`;
 
       const impersonationBadge = em.impersonation && em.impersonation.is_impersonation
         ? `<div style="font-size:10px;font-family:var(--mono);background:rgba(255,59,107,.15);color:var(--danger);border:1px solid rgba(255,59,107,.3);padding:2px 7px;border-radius:4px;margin-top:4px;display:inline-block">🥸 IMPERSONATION ALERT: Looks like ${escHtml(em.impersonation.matched_contact)}</div>`
         : '';
-
       const urlBadge = em.url_result && em.url_result.has_malicious_url
         ? `<div style="font-size:10px;font-family:var(--mono);background:rgba(255,59,107,.15);color:var(--danger);border:1px solid rgba(255,59,107,.3);padding:2px 7px;border-radius:4px;margin-top:4px;display:inline-block">🔗 MALICIOUS URL FOUND</div>`
         : '';
@@ -842,28 +768,33 @@ async function startGmailScan(max=30) {
           <div class="email-main">
             <div class="email-verdict-icon">${isPhish?'🚨':'✅'}</div>
             <div class="email-body">
-              <div class="email-subject">${escHtml(em.subject)}${folderBadge}</div>
+              <div class="email-subject">${escHtml(em.subject)}</div>
               <div class="email-meta">${escHtml(em.sender)} · ${escHtml(em.date.slice(0,16))}</div>
               <div class="email-snippet">${escHtml(em.snippet)}</div>
-              ${em.urls_found && em.urls_found.length ?
-                `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">🔗 ${em.urls_found.length} URL${em.urls_found.length>1?'s':''} found</div>` : ''}
-              ${impersonationBadge}
-              ${urlBadge}
+              ${em.urls_found && em.urls_found.length ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">🔗 ${em.urls_found.length} URL${em.urls_found.length>1?'s':''} found</div>` : ''}
+              ${impersonationBadge}${urlBadge}
             </div>
             <div class="email-actions">
-              <div class="email-badge ${isPhish?'badge-phish':'badge-safe'}">
-                ${isPhish?'⚠ PHISH':'✓ SAFE'}
-              </div>
+              <div class="email-badge ${isPhish?'badge-phish':'badge-safe'}">${isPhish?'⚠ PHISH':'✓ SAFE'}</div>
               <div class="conf-small">${conf}%</div>
-              ${explainBtn}
+              ${explainBtn}${aiDetectBtn}
             </div>
           </div>
           <div class="explain-panel" id="explain-panel-${idx}"></div>
+          <div class="ai-detect-panel" id="ai-detect-panel-${idx}"></div>
         </div>`;
     }).join('');
 
-    // Store email data for later explain calls
     window._emailData = sorted;
+
+    list.addEventListener('click', e => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const idx    = parseInt(btn.dataset.emailIdx, 10);
+      const action = btn.dataset.action;
+      if (action === 'explain')   openEmailExplain(idx);
+      if (action === 'ai-detect') openEmailAIDetect(idx);
+    });
 
   } catch(e) {
     document.getElementById('scan-progress').classList.remove('show');
@@ -871,35 +802,16 @@ async function startGmailScan(max=30) {
   }
 }
 
-// ── Open email explain (inline panel under email) ──────────────
 async function openEmailExplain(idx) {
   const panel = document.getElementById(`explain-panel-${idx}`);
   const em    = window._emailData[idx];
-
-  if (panel.classList.contains('open')) {
-    panel.classList.remove('open');
-    return;
-  }
-
+  if (panel.classList.contains('open')) { panel.classList.remove('open'); return; }
   panel.classList.add('open');
-  panel.innerHTML = `<div class="explain-loading">
-    <div class="mini-spinner" style="border-top-color:#a855f7"></div>
-    <span>Gemini is analyzing this threat…</span>
-  </div>`;
-
+  panel.innerHTML = `<div class="explain-loading"><div class="mini-spinner" style="border-top-color:#a855f7"></div><span>Gemini is analyzing this threat…</span></div>`;
   try {
     const r = await fetch('/explain/email', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        subject:      em.subject,
-        sender:       em.sender,
-        snippet:      em.snippet,
-        body_preview: em.body_preview || em.snippet,
-        urls_found:   em.urls_found || [],
-        confidence:   em.text_result?.confidence || 0,
-        folder:       em.folder,
-      })
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ subject: em.subject, sender: em.sender, snippet: em.snippet, body_preview: em.body_preview || em.snippet, urls_found: em.urls_found || [], confidence: em.text_result?.confidence || 0 })
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -909,86 +821,99 @@ async function openEmailExplain(idx) {
   }
 }
 
-// ── Build explain HTML from Gemini response ────────────────────
-function buildExplainHTML(d, emailData) {
-  const dlevel = d.danger_level || 'HIGH';
+async function openEmailAIDetect(idx) {
+  const panel = document.getElementById(`ai-detect-panel-${idx}`);
+  const em    = window._emailData[idx];
+  if (panel.classList.contains('open')) { panel.classList.remove('open'); return; }
+  panel.classList.add('open');
+  panel.innerHTML = `<div class="explain-loading"><div class="mini-spinner" style="border-top-color:var(--ai-detect)"></div><span>Scanning for AI-generated content…</span></div>`;
+  try {
+    const r = await fetch('/analyze/ai-content', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text: em.body_preview || em.snippet || '', subject: em.subject || '', sender: em.sender || '' })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    panel.innerHTML = buildAIDetectHTML(d);
+  } catch(e) {
+    panel.innerHTML = `<div style="padding:12px;color:var(--danger);font-size:13px">⚠️ ${escHtml(e.message)}</div>`;
+  }
+}
 
-  // Red flags list
-  const flagItems = (d.red_flags || []).map(f =>
-    `<li>${escHtml(f)}</li>`).join('');
+function buildAIDetectHTML(d) {
+  const score       = d.ai_score || 0;
+  const verdict     = d.verdict  || 'UNCERTAIN';
+  const conf        = d.confidence || 'LOW';
+  const scoreClass  = score >= 70 ? 'high' : score >= 45 ? 'medium' : 'low';
+  const verdictClass = 'ai-verdict-' + verdict.replace(/ /g, '-');
+  const indicatorItems = (d.top_indicators || []).map(i => `<li>${escHtml(i)}</li>`).join('');
+  const humanItems = (d.human_signals || []).length
+    ? d.human_signals.map(i => `<li class="human-li">${escHtml(i)}</li>`).join('')
+    : `<li class="human-li">No strong human-writing signals detected</li>`;
+  return `
+    <div class="explain-header">
+      <span class="ai-detect-badge">AI DETECTOR</span>
+      <div class="explain-verdict">${score>=70?'This email was likely written by an AI':score>=45?'This email may have been AI-assisted':'This email appears to be human-written'}</div>
+      <span class="ai-verdict-pill ${verdictClass}">${escHtml(verdict)}</span>
+    </div>
+    <div class="ai-score-block">
+      <div class="ai-score-header">
+        <div>
+          <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-bottom:4px">AI CONTENT SCORE</div>
+          <div class="ai-score-num ${scoreClass}">${score}<span style="font-size:18px;color:var(--muted)">%</span></div>
+          ${d.model_guess && d.model_guess !== 'Unknown' ? `<div class="ai-model-guess">🤖 Possibly: ${escHtml(d.model_guess)}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;margin-bottom:6px">DETECTION CONFIDENCE</div>
+          <span class="ai-verdict-pill ${verdictClass}" style="font-size:12px">${escHtml(verdict)}</span>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono)">${conf} CONFIDENCE</div>
+        </div>
+      </div>
+      <div class="ai-bar-bg"><div class="ai-bar-fill" style="width:${score}%"></div></div>
+      <div class="ai-score-sub">0% = Human · 100% = AI-generated</div>
+      ${d.writing_style ? `<div class="writing-style-chip">✍ ${escHtml(d.writing_style)}</div>` : ''}
+    </div>
+    <div class="explain-grid">
+      <div class="explain-card"><h4>🤖 AI Writing Signals</h4><ul>${indicatorItems||'<li>No strong AI signals detected</li>'}</ul></div>
+      <div class="explain-card"><h4>👤 Human-like Elements</h4><ul>${humanItems}</ul></div>
+    </div>
+    ${d.risk_context ? `<div class="ai-context-tip"><span class="tip-icon">⚠️</span><p><strong>Security context:</strong> ${escHtml(d.risk_context)}</p></div>` : ''}
+  `;
+}
 
-  // Psychological tricks (only for text/email)
-  const tricksSection = d.psychological_tricks ? `
-    <div class="explain-card">
-      <h4>🎭 Psychological Tricks Used</h4>
-      <ul>${(d.psychological_tricks||[]).map(t=>`<li>${escHtml(t)}</li>`).join('')}</ul>
-    </div>` : '';
-
-  // How to verify (email) or safe alternative (URL)
-  const verifyContent = d.how_to_verify_legitimacy || d.how_to_verify || d.safe_alternative || '';
-
-  // What the attacker wants
-  const attackerWants = d.what_attacker_wants || d.what_happens_if_clicked || '';
-
-  // Tip content
-  const tipContent = d.how_to_spot_next_time || d.tip_for_future || d.educational_insight || '';
-
-  // Action content
-  const actionContent = d.what_to_do || '';
-
+function buildExplainHTML(d) {
+  const dlevel         = d.danger_level || 'HIGH';
+  const flagItems      = (d.red_flags || []).map(f => `<li>${escHtml(f)}</li>`).join('');
+  const tricksSection  = d.psychological_tricks ? `<div class="explain-card"><h4>🎭 Psychological Tricks Used</h4><ul>${(d.psychological_tricks||[]).map(t=>`<li>${escHtml(t)}</li>`).join('')}</ul></div>` : '';
+  const verifyContent  = d.how_to_verify_legitimacy || d.how_to_verify || d.safe_alternative || '';
+  const attackerWants  = d.what_attacker_wants || d.what_happens_if_clicked || '';
+  const tipContent     = d.how_to_spot_next_time || d.tip_for_future || d.educational_insight || '';
+  const actionContent  = d.what_to_do || '';
   return `
     <div class="explain-header">
       <span class="gemini-badge">GEMINI AI</span>
       <div class="explain-verdict">${escHtml(d.verdict_summary || '')}</div>
       <span class="danger-badge danger-${dlevel}">${dlevel}</span>
     </div>
-
     <div class="explain-grid">
-      <div class="explain-card">
-        <h4>🚩 Red Flags Detected</h4>
-        <ul>${flagItems || '<li>Pattern analysis flagged this content</li>'}</ul>
-      </div>
-
+      <div class="explain-card"><h4>🚩 Red Flags Detected</h4><ul>${flagItems||'<li>Pattern analysis flagged this content</li>'}</ul></div>
       <div class="explain-card">
         <h4>🎯 Attacker's Goal</h4>
         <p>${escHtml(attackerWants)}</p>
         ${verifyContent ? `<p style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"><strong style="color:var(--accent);font-size:11px;font-family:var(--mono)">HOW TO VERIFY</strong><br/><span style="font-size:12px">${escHtml(verifyContent)}</span></p>` : ''}
       </div>
-
       ${tricksSection}
     </div>
-
-    ${actionContent ? `
-    <div class="explain-action">
-      <span class="act-icon">🛑</span>
-      <p><strong>What to do right now:</strong> ${escHtml(actionContent)}</p>
-    </div>` : ''}
-
-    ${tipContent ? `
-    <div class="explain-tip" style="margin-top:12px">
-      <span class="tip-icon">💡</span>
-      <p><strong>Remember for next time:</strong> ${escHtml(tipContent)}</p>
-    </div>` : ''}
-
-    ${d.danger_reason ? `
-    <div style="margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--mono);padding:8px 12px;background:var(--surface);border-radius:8px">
-      DANGER LEVEL ${dlevel}: ${escHtml(d.danger_reason)}
-    </div>` : ''}
+    ${actionContent ? `<div class="explain-action"><span class="act-icon">🛑</span><p><strong>What to do right now:</strong> ${escHtml(actionContent)}</p></div>` : ''}
+    ${tipContent ? `<div class="explain-tip" style="margin-top:12px"><span class="tip-icon">💡</span><p><strong>Remember for next time:</strong> ${escHtml(tipContent)}</p></div>` : ''}
+    ${d.danger_reason ? `<div style="margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--mono);padding:8px 12px;background:var(--surface);border-radius:8px">DANGER LEVEL ${dlevel}: ${escHtml(d.danger_reason)}</div>` : ''}
   `;
 }
 
-// ── Modal open/close ──────────────────────────────────────────
-function openModal() {
-  document.getElementById('explain-modal').classList.add('open');
-  document.body.style.overflow = 'hidden';
-}
-function closeModal() {
-  document.getElementById('explain-modal').classList.remove('open');
-  document.body.style.overflow = '';
-}
+function openModal() { document.getElementById('explain-modal').classList.add('open'); document.body.style.overflow = 'hidden'; }
+function closeModal() { document.getElementById('explain-modal').classList.remove('open'); document.body.style.overflow = ''; }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
-// ── Auth status ── ROUTE: GET /auth/status ─────────────────────
 async function checkAuth() {
   try {
     const r = await fetch('/auth/status');
@@ -997,23 +922,17 @@ async function checkAuth() {
     if (d.logged_in) {
       document.getElementById('gmail-logged-out').style.display = 'none';
       document.getElementById('gmail-logged-in').style.display  = 'block';
-      hr.innerHTML = `
-        <div class="user-pill">
-          <span class="user-dot"></span>
-          <span>${escHtml(d.email || d.name || 'Gmail')}</span>
-        </div>`;
+      hr.innerHTML = `<div class="user-pill"><span class="user-dot"></span><span>${escHtml(d.email || d.name || 'Gmail')}</span></div>`;
       if (new URLSearchParams(location.search).get('gmail') === '1') {
         history.replaceState({}, '', '/');
         startGmailScan();
       }
     } else {
-      hr.innerHTML = `<a href="/login" class="btn btn-google btn-sm">
-        <img src="https://www.google.com/favicon.ico" width="14" height="14" alt="G"/> Sign in</a>`;
+      hr.innerHTML = `<a href="/login" class="btn btn-google btn-sm"><img src="https://www.google.com/favicon.ico" width="14" height="14" alt="G"/> Sign in</a>`;
     }
   } catch(e) { /* ignore */ }
 }
 
-// ── Helpers ────────────────────────────────────────────────────
 function showError(id, msg) {
   const el = document.getElementById(id);
   el.className = 'result-box show';
@@ -1027,10 +946,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
 }
 
-document.getElementById('url-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') analyzeURL();
-});
-
+document.getElementById('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') analyzeURL(); });
 checkAuth();
 </script>
 </body>
