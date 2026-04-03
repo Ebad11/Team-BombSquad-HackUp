@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Phishing Detection System</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --border:    #2a2d3e;
+    --accent:    #6c63ff;
+    --accent2:   #4facfe;
+    --danger:    #ff4d6d;
+    --safe:      #00c896;
+    --warn:      #ffb347;
+    --text:      #e2e8f0;
+    --muted:     #8892a4;
+    --radius:    10px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 60px;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  header .badge {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+  }
+  header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  header h1 span { color: var(--accent); }
+  header p {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 6px;
+  }
+
+  /* ── Tabs ────────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px;
+    margin-bottom: 28px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 28px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .tab-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* ── Card ────────────────────────────────────────────────── */
+  .card {
+    width: 100%;
+    max-width: 700px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    display: none;
+  }
+  .card.active { display: block; }
+
+  .card h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h2 .icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+
+  /* ── Input area ──────────────────────────────────────────── */
+  .input-group { margin-bottom: 16px; }
+  .input-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+  }
+  .input-group input,
+  .input-group textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    transition: border-color .2s;
+    font-family: inherit;
+    resize: vertical;
+  }
+  .input-group input:focus,
+  .input-group textarea:focus { border-color: var(--accent); }
+  .input-group textarea { min-height: 90px; }
+
+  /* ── Buttons ─────────────────────────────────────────────── */
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 11px 28px;
+    cursor: pointer;
+    transition: opacity .2s, transform .1s;
+  }
+  .btn-primary:hover { opacity: .85; }
+  .btn-primary:active { transform: scale(.98); }
+
+  .btn-clear {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 14px;
+    padding: 11px 20px;
+    cursor: pointer;
+    transition: border-color .2s, color .2s;
+  }
+  .btn-clear:hover { border-color: var(--muted); color: var(--text); }
+
+  /* ── Test cases ──────────────────────────────────────────── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 22px 0 10px;
+  }
+  .test-cases { display: flex; flex-direction: column; gap: 7px; }
+  .test-case {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 14px;
+    cursor: pointer;
+    transition: border-color .2s;
+    text-align: left;
+  }
+  .test-case:hover { border-color: var(--accent); }
+  .test-case .tc-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .tc-tag.phishing { background: rgba(255,77,109,.15); color: var(--danger); }
+  .tc-tag.safe     { background: rgba(0,200,150,.15);  color: var(--safe);   }
+  .test-case .tc-text {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Result box ──────────────────────────────────────────── */
+  .result-box {
+    margin-top: 22px;
+    border-radius: var(--radius);
+    padding: 20px;
+    display: none;
+    border: 1px solid var(--border);
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+
+  .result-box.show { display: block; }
+  .result-box.phishing { border-color: var(--danger); background: rgba(255,77,109,.06); }
+  .result-box.safe     { border-color: var(--safe);   background: rgba(0,200,150,.06);  }
+  .result-box.loading  { border-color: var(--border); background: transparent; }
+
+  .result-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .result-emoji { font-size: 28px; }
+  .result-label { font-size: 20px; font-weight: 800; }
+  .result-box.phishing .result-label { color: var(--danger); }
+  .result-box.safe     .result-label { color: var(--safe);   }
+
+  .confidence-bar-wrap { margin-bottom: 14px; }
+  .confidence-bar-wrap .conf-label {
+    font-size: 12px; color: var(--muted); margin-bottom: 5px;
+    display: flex; justify-content: space-between;
+  }
+  .bar-bg {
+    width: 100%; height: 8px;
+    background: var(--border); border-radius: 99px; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 99px;
+    transition: width .6s ease;
+  }
+  .result-box.phishing .bar-fill { background: var(--danger); }
+  .result-box.safe     .bar-fill { background: var(--safe);   }
+
+  /* ── Feature table ───────────────────────────────────────── */
+  .feat-toggle {
+    font-size: 12px; color: var(--accent);
+    cursor: pointer; margin-bottom: 8px; display: inline-block;
+    background: none; border: none; padding: 0;
+  }
+  .feat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 6px;
+    display: none;
+  }
+  .feat-grid.open { display: grid; }
+  .feat-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .feat-item .fk { color: var(--muted); }
+  .feat-item .fv { font-weight: 700; color: var(--text); }
+
+  /* ── Spinner ─────────────────────────────────────────────── */
+  .spinner {
+    width: 22px; height: 22px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Footer ──────────────────────────────────────────────── */
+  footer {
+    margin-top: 48px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">🛡️ ML Prototype</div>
+  <h1>Phishing <span>Detection</span> System</h1>
+  <p>Logistic Regression · Multinomial Naive Bayes</p>
+</header>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('url')">🔗 URL Detection</button>
+  <button class="tab-btn"        onclick="switchTab('text')">📧 Text / SMS Detection</button>
+</div>
+
+<!-- ── URL CARD ─────────────────────────────────────────────── -->
+<div class="card active" id="card-url">
+  <h2><span class="icon">🔗</span> URL Phishing Detector</h2>
+
+  <div class="input-group">
+    <label>Enter URL</label>
+    <input type="text" id="url-input" placeholder="https://example.com/login/verify" />
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" onclick="analyzeURL()">Analyze URL</button>
+    <button class="btn-clear"   onclick="clearURL()">Clear</button>
+  </div>
+
+  <!-- Test cases -->
+  <div class="section-label">Quick Test Cases — click to load</div>
+  <div class="test-cases" id="url-tests"></div>
+
+  <!-- Result -->
+  <div class="result-box" id="url-result"></div>
+</div>
+
+<!-- ── TEXT CARD ────────────────────────────────────────────── -->
+<div class="card" id="card-text">
+  <h2><span class="icon">📧</span> Text / SMS Phishing Detector</h2>
+
+  <div class="input-group">
+    <label>Enter Message</label>
+    <textarea id="text-input" placeholder="Paste an email or SMS message here..."></textarea>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" onclick="analyzeText()">Analyze Text</button>
+    <button class="btn-clear"   onclick="clearText()">Clear</button>
+  </div>
+
+  <div class="section-label">Quick Test Cases — click to load</div>
+  <div class="test-cases" id="text-tests"></div>
+
+  <div class="result-box" id="text-result"></div>
+</div>
+
+<footer>
+  Built with Flask · scikit-learn · Running on localhost:5000
+</footer>
+
+<script>
+// ── Test case data ───────────────────────────────────────────────
+const URL_TESTS = [
+  { label: "phishing", text: "http://secure-login-verify.paypa1-account.com/update?id=9821" },
+  { label: "phishing", text: "http://192.168.1.1/login/bankofamerica/account-verify/password" },
+  { label: "phishing", text: "http://amazzon-secure-login-account-update.tk/index.php?verify=1" },
+  { label: "safe",     text: "https://www.google.com" },
+  { label: "safe",     text: "https://www.amazon.com/products/electronics" },
+  { label: "safe",     text: "https://github.com/user/repository/blob/main/README.md" },
+];
+
+const TEXT_TESTS = [
+  { label: "phishing", text: "WINNER! You've been selected for a £1000 prize. Call 08712300150 NOW to claim!" },
+  { label: "phishing", text: "URGENT: Your bank account is suspended. Verify immediately: http://fakebank.login-secure.tk" },
+  { label: "phishing", text: "Congratulations! You won a FREE iPhone 15. Click here to claim before it expires: bit.ly/win-iphone" },
+  { label: "safe",     text: "Hey, are you coming to the team standup meeting at 3pm today?" },
+  { label: "safe",     text: "Your Amazon order #112-3456789 has shipped and will arrive by Friday." },
+  { label: "safe",     text: "Happy birthday! Hope you have a wonderful day. Let's catch up soon." },
+];
+
+// ── Render test cases ────────────────────────────────────────────
+function renderTests(containerId, cases, fillFn) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = "";
+  cases.forEach(tc => {
+    const div = document.createElement("div");
+    div.className = "test-case";
+    div.innerHTML = `
+      <span class="tc-tag ${tc.label}">${tc.label === "phishing" ? "⚠️ Phishing" : "✅ Safe"}</span>
+      <span class="tc-text">${tc.text}</span>
+    `;
+    div.addEventListener("click", () => fillFn(tc.text));
+    el.appendChild(div);
+  });
+}
+
+renderTests("url-tests",  URL_TESTS,  t => { document.getElementById("url-input").value  = t; });
+renderTests("text-tests", TEXT_TESTS, t => { document.getElementById("text-input").value = t; });
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach((b, i) =>
+    b.classList.toggle("active", (i === 0) === (tab === "url"))
+  );
+  document.getElementById("card-url").classList.toggle("active",  tab === "url");
+  document.getElementById("card-text").classList.toggle("active", tab === "text");
+}
+
+// ── Clear ────────────────────────────────────────────────────────
+function clearURL()  {
+  document.getElementById("url-input").value = "";
+  hideResult("url-result");
+}
+function clearText() {
+  document.getElementById("text-input").value = "";
+  hideResult("text-result");
+}
+function hideResult(id) {
+  const el = document.getElementById(id);
+  el.className = "result-box";
+  el.innerHTML = "";
+}
+
+// ── Show loading ─────────────────────────────────────────────────
+function showLoading(id) {
+  const el = document.getElementById(id);
+  el.className = "result-box loading show";
+  el.innerHTML = `<div style="padding:10px 0; text-align:center">
+    <div class="spinner"></div>
+    <p style="color:var(--muted);font-size:13px;margin-top:10px">Analyzing...</p>
+  </div>`;
+}
+
+// ── Render result ────────────────────────────────────────────────
+function renderResult(id, data, showFeatures = false) {
+  const el  = document.getElementById(id);
+  const isP = data.prediction === "phishing";
+  el.className = `result-box show ${data.prediction}`;
+
+  let featureHTML = "";
+  if (showFeatures && data.features) {
+    const entries = Object.entries(data.features);
+    featureHTML = `
+      <button class="feat-toggle" onclick="toggleFeatures(this)">▶ Show extracted features</button>
+      <div class="feat-grid">
+        ${entries.map(([k, v]) => `
+          <div class="feat-item">
+            <span class="fk">${k.replace(/_/g," ")}</span>
+            <span class="fv">${v}</span>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="result-header">
+      <div class="result-emoji">${isP ? "🚨" : "✅"}</div>
+      <div>
+        <div class="result-label">${isP ? "PHISHING DETECTED" : "SAFE"}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">
+          ${isP ? "This appears to be a phishing attempt." : "No phishing indicators found."}
+        </div>
+      </div>
+    </div>
+    <div class="confidence-bar-wrap">
+      <div class="conf-label">
+        <span>Confidence</span>
+        <span>${data.confidence}%</span>
+      </div>
+      <div class="bar-bg">
+        <div class="bar-fill" style="width:${data.confidence}%"></div>
+      </div>
+    </div>
+    ${featureHTML}
+  `;
+}
+
+function toggleFeatures(btn) {
+  const grid = btn.nextElementSibling;
+  const open = grid.classList.toggle("open");
+  btn.textContent = (open ? "▼ Hide" : "▶ Show") + " extracted features";
+}
+
+// ── Analyze URL ──────────────────────────────────────────────────
+async function analyzeURL() {
+  const url = document.getElementById("url-input").value.trim();
+  if (!url) {
+    alert("Please enter a URL first.");
+    return;
+  }
+  showLoading("url-result");
+  try {
+    const res  = await fetch("/predict/url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderResult("url-result", data, true);
+  } catch (err) {
+    const el = document.getElementById("url-result");
+    el.className = "result-box show";
+    el.innerHTML = `<p style="color:var(--danger)">⚠️ Error: ${err.message}</p>`;
+  }
+}
+
+// ── Analyze Text ─────────────────────────────────────────────────
+async function analyzeText() {
+  const text = document.getElementById("text-input").value.trim();
+  if (!text) {
+    alert("Please enter a message first.");
+    return;
+  }
+  showLoading("text-result");
+  try {
+    const res  = await fetch("/predict/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderResult("text-result", data, false);
+  } catch (err) {
+    const el = document.getElementById("text-result");
+    el.className = "result-box show";
+    el.innerHTML = `<p style="color:var(--danger)">⚠️ Error: ${err.message}</p>`;
+  }
+}
+
+// ── Enter key support ─────────────────────────────────────────────
+document.getElementById("url-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") analyzeURL();
+});
+</script>
+</body>
+</html>

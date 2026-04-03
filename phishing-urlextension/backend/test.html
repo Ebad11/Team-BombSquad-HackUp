@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test API</title>
+</head>
+<body>
+
+<h2>Phishing API Test</h2>
+<button onclick="testAPI()">Test API</button>
+
+<script>
+function testAPI() {
+    fetch("http://127.0.0.1:5000/predict/url", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            url: "http://secure-login-bank.com"
+        })
+    })
+    .then(res => res.json())
+    .then(data => console.log(data))
+    .catch(err => console.error(err));
+}
+</script>
+
+</body>
+</html>
