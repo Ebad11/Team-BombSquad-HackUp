@@ -3,7 +3,7 @@ from flask import (
     redirect, session
 )
 import joblib, pandas as pd, numpy as np
-import re, math, string, os, base64, io, json, traceback
+import re, math, string, os, base64, io, json, traceback, zipfile, struct
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -12,6 +12,7 @@ import google.auth.transport.requests
 import urllib.request
 import difflib
 from email.utils import parseaddr
+
 # ── OCR: Pillow + Tesseract ──────────────────────────────────────
 try:
     from PIL import Image
@@ -20,6 +21,48 @@ try:
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
+
+# ── PDF ──────────────────────────────────────────────────────────
+try:
+    import pdfplumber
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+# ── DOCX ─────────────────────────────────────────────────────────
+try:
+    import docx as python_docx
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
+# ── XLSX ─────────────────────────────────────────────────────────
+try:
+    import openpyxl
+    XLSX_AVAILABLE = True
+except ImportError:
+    XLSX_AVAILABLE = False
+
+# ── HTML parsing ─────────────────────────────────────────────────
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
+
+# ── oletools for macro analysis ──────────────────────────────────
+try:
+    from oletools.olevba import VBA_Parser
+    OLETOOLS_AVAILABLE = True
+except ImportError:
+    OLETOOLS_AVAILABLE = False
+
+# ── pefile for EXE analysis ──────────────────────────────────────
+try:
+    import pefile
+    PEFILE_AVAILABLE = True
+except ImportError:
+    PEFILE_AVAILABLE = False
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -95,7 +138,7 @@ SCOPES = [
 REDIRECT_URI = "http://localhost:5000/oauth2callback"
 
 # ════════════════════════════════════════════════════════════════
-#  HELPERS
+#  HELPERS — ORIGINAL
 # ════════════════════════════════════════════════════════════════
 
 def get_credentials():
@@ -147,31 +190,30 @@ def get_trusted_contacts(service) -> set:
 def check_impersonation(sender: str, trusted_contacts: set) -> dict:
     _, email_addr = parseaddr(sender)
     email_addr = email_addr.lower()
-    
+
     if not email_addr or "@" not in email_addr:
         return {"is_impersonation": False, "score": 0, "matched_contact": None}
-        
+
     username, domain = email_addr.split("@", 1)
-    
+
     best_score = 0
     best_contact = None
-    
+
     for contact in trusted_contacts:
         if "@" not in contact: continue
         c_user, c_domain = contact.split("@", 1)
-        
-        # If the exact email matches, it's the real person, not an impersonator.
+
         if domain == c_domain and username == c_user:
             continue
-            
+
         score = difflib.SequenceMatcher(None, username, c_user).ratio()
         if score > best_score:
             best_score = score
             best_contact = contact
-            
-    if best_score > 0.85: # 85% similarity threshold
+
+    if best_score > 0.85:
         return {"is_impersonation": True, "score": round(best_score * 100, 1), "matched_contact": best_contact}
-    
+
     return {"is_impersonation": False, "score": round(best_score * 100, 1), "matched_contact": None}
 
 
@@ -192,7 +234,6 @@ def extract_url_features(url: str) -> list:
 
 
 def get_url_red_flags(url: str) -> list:
-    """Extract human-readable red flags from a URL."""
     flags = []
     if re.search(r"\d+\.\d+\.\d+\.\d+", url):
         flags.append("Uses raw IP address instead of domain name")
@@ -232,6 +273,808 @@ def decode_body(payload):
         if data:
             return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="ignore")
     return ""
+
+
+def run_text_model(text: str) -> dict:
+    """Run text through tfidf + text_model. Returns prediction and confidence."""
+    if text_model is None or tfidf is None:
+        return {"is_phishing": False, "confidence": 0.0}
+    try:
+        vec   = tfidf.transform([text])
+        pred  = int(text_model.predict(vec)[0])
+        proba = text_model.predict_proba(vec)[0]
+        return {"is_phishing": bool(pred == 1), "confidence": round(float(max(proba)) * 100, 2)}
+    except Exception:
+        return {"is_phishing": False, "confidence": 0.0}
+
+
+def run_url_model(url: str) -> bool:
+    """Run a URL through the url_model. Returns True if phishing."""
+    if url_model is None or url_scaler is None:
+        return False
+    try:
+        f      = extract_url_features(url)
+        scaled = url_scaler.transform([f])
+        return int(url_model.predict(scaled)[0]) == 1
+    except Exception:
+        return False
+
+
+# ════════════════════════════════════════════════════════════════
+#  ATTACHMENT ANALYSIS HELPERS
+# ════════════════════════════════════════════════════════════════
+
+# ── Magic bytes for file type verification ───────────────────────
+MAGIC_BYTES = {
+    "exe":  b"MZ",
+    "pdf":  b"%PDF",
+    "png":  b"\x89PNG",
+    "jpg":  b"\xff\xd8\xff",
+    "zip":  b"PK\x03\x04",
+    "gif":  b"GIF8",
+    "webp": b"RIFF",
+}
+
+# ── Extensions considered dangerous without further analysis ─────
+INSTANT_DANGER_EXTENSIONS = {".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".scr", ".pif"}
+
+# ── Macro-enabled Office formats ─────────────────────────────────
+MACRO_EXTENSIONS = {".xlsm", ".docm", ".xltm", ".dotm", ".pptm"}
+
+# ── Suspicious EXE import names ──────────────────────────────────
+SUSPICIOUS_IMPORTS = {
+    "VirtualAlloc", "WriteProcessMemory", "CreateRemoteThread",
+    "URLDownloadToFile", "WinExec", "ShellExecute", "CreateProcess",
+    "RegSetValue", "IsDebuggerPresent",
+}
+
+# ── Suspicious EXE strings ───────────────────────────────────────
+SUSPICIOUS_EXE_STRINGS = [
+    "powershell", "cmd.exe", "wget", "curl", "reg add",
+    "HKEY_", "taskkill", "netstat", "base64", "http://", "https://",
+]
+
+# ── Suspicious macro keywords ────────────────────────────────────
+SUSPICIOUS_MACRO_KEYWORDS = [
+    "Shell", "CreateObject", "WScript", "URLDownloadToFile",
+    "Auto_Open", "Document_Open", "Workbook_Open", "AutoOpen",
+    "AutoExec", "powershell", "cmd", "reg add", "VirtualAlloc",
+]
+
+# ── JS obfuscation markers (HTML) ────────────────────────────────
+OBFUSCATION_MARKERS = ["eval(", "atob(", "unescape(", "String.fromCharCode(", "document.write("]
+
+
+def calculate_entropy(data: bytes) -> float:
+    """Calculate Shannon entropy of bytes. Scale 0–8. Above 7.2 = suspicious."""
+    if not data:
+        return 0.0
+    freq = {}
+    for byte in data:
+        freq[byte] = freq.get(byte, 0) + 1
+    entropy = 0.0
+    length  = len(data)
+    for count in freq.values():
+        p = count / length
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return round(entropy, 3)
+
+
+def verify_magic_bytes(data: bytes, claimed_ext: str) -> bool:
+    """Returns True if file bytes match the claimed extension."""
+    ext = claimed_ext.lower().lstrip(".")
+    magic = MAGIC_BYTES.get(ext)
+    if magic is None:
+        return True   # Unknown type — can't verify, assume ok
+    return data[:len(magic)] == magic
+
+
+def extract_printable_strings(data: bytes, min_len: int = 6) -> list:
+    """Extract printable ASCII strings from binary data."""
+    result = []
+    current = []
+    for byte in data:
+        if 32 <= byte < 127:
+            current.append(chr(byte))
+        else:
+            if len(current) >= min_len:
+                result.append("".join(current))
+            current = []
+    if len(current) >= min_len:
+        result.append("".join(current))
+    return result
+
+
+# ── Per-type analyzers ───────────────────────────────────────────
+
+def analyze_exe(data: bytes, filename: str) -> dict:
+    """
+    Static analysis of EXE/binary files.
+    Never executes — read-only forensic analysis.
+    """
+    flags      = []
+    risk_score = 0
+
+    # 1. Magic byte check
+    ext = os.path.splitext(filename)[1].lower()
+    if not verify_magic_bytes(data, "exe"):
+        flags.append(f"File extension is '{ext}' but internal bytes don't match a real EXE — possible disguised file")
+        risk_score += 30
+
+    # 2. Entropy
+    entropy = calculate_entropy(data)
+    flags.append(f"File entropy: {entropy}/8.0")
+    if entropy > 7.2:
+        flags.append("Very high entropy (packed/encrypted) — common obfuscation in malware")
+        risk_score += 40
+    elif entropy > 6.5:
+        flags.append("Elevated entropy — file may be compressed or partially obfuscated")
+        risk_score += 15
+
+    # 3. Suspicious strings
+    strings     = extract_printable_strings(data)
+    found_strs  = [s for s in strings if any(kw.lower() in s.lower() for kw in SUSPICIOUS_EXE_STRINGS)]
+    if found_strs:
+        sample = found_strs[:5]
+        flags.append(f"Suspicious strings found: {', '.join(sample[:3])}")
+        risk_score += min(len(found_strs) * 5, 30)
+
+    # 4. PE header analysis (if pefile available)
+    if PEFILE_AVAILABLE:
+        try:
+            pe = pefile.PE(data=data)
+
+            # Compilation timestamp
+            ts = pe.FILE_HEADER.TimeDateStamp
+            if ts == 0 or ts > 2_000_000_000:
+                flags.append("Invalid or tampered compilation timestamp — common in malware")
+                risk_score += 10
+
+            # Suspicious imports
+            if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+                for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                    for imp in entry.imports:
+                        if imp.name:
+                            imp_name = imp.name.decode(errors="ignore")
+                            if imp_name in SUSPICIOUS_IMPORTS:
+                                flags.append(f"Imports dangerous API: {imp_name}")
+                                risk_score += 15
+
+            # Section names
+            for section in pe.sections:
+                name = section.Name.decode(errors="ignore").strip("\x00")
+                if name and not re.match(r'^[\.\w]+$', name):
+                    flags.append(f"Unusual PE section name: '{name}' — seen in packed malware")
+                    risk_score += 10
+        except Exception as pe_err:
+            flags.append(f"PE header could not be parsed: {pe_err} — may indicate a corrupted or packed file")
+            risk_score += 10
+
+    is_suspicious = risk_score >= 30
+    return {
+        "type":         "exe",
+        "filename":     filename,
+        "is_suspicious": is_suspicious,
+        "risk_score":   min(risk_score, 100),
+        "entropy":      entropy,
+        "flags":        flags,
+        "summary":      f"EXE static analysis: risk score {min(risk_score,100)}/100, entropy {entropy}/8.0"
+    }
+
+
+def analyze_zip(data: bytes, filename: str) -> dict:
+    """
+    Analyze ZIP without extracting. Safe read-only inspection.
+    If inner files are PDF/doc/html/image, analyze them too (1 level deep).
+    """
+    flags      = []
+    risk_score = 0
+    inner_results = []
+
+    # 1. Magic byte check
+    if not verify_magic_bytes(data, "zip"):
+        flags.append("File claims to be ZIP but internal bytes don't match — possible disguised file")
+        risk_score += 25
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return {
+            "type": "zip", "filename": filename,
+            "is_suspicious": True, "risk_score": 50,
+            "flags": ["File is not a valid ZIP archive — could be a disguised executable"],
+            "summary": "Invalid ZIP file"
+        }
+
+    # 2. Password protection
+    needs_pwd = False
+    for info in zf.infolist():
+        if info.flag_bits & 0x1:
+            needs_pwd = True
+            break
+    if needs_pwd:
+        flags.append("ZIP is password-protected — prevents security scanning, common in phishing attachments")
+        risk_score += 35
+
+    # 3. Nesting depth (zip-in-zip)
+    inner_zips = [f for f in zf.namelist() if f.lower().endswith(".zip")]
+    if inner_zips:
+        flags.append(f"ZIP contains nested ZIP files ({len(inner_zips)}) — evasion technique")
+        risk_score += 20
+
+    # 4. Inspect all filenames
+    for name in zf.namelist():
+        ext = os.path.splitext(name)[1].lower()
+
+        # Double extension
+        parts = name.lower().split(".")
+        if len(parts) >= 3:
+            flags.append(f"Double extension detected: '{name}' — classic trick to hide true file type")
+            risk_score += 25
+
+        # Dangerous inner extensions
+        if ext in INSTANT_DANGER_EXTENSIONS:
+            flags.append(f"Contains dangerous file type inside: '{name}'")
+            risk_score += 40
+
+        if ext in MACRO_EXTENSIONS:
+            flags.append(f"Contains macro-enabled Office file: '{name}'")
+            risk_score += 30
+
+        if ext == ".exe":
+            flags.append(f"Contains executable inside ZIP: '{name}'")
+            risk_score += 40
+
+    # 5. Compression ratio (zip bomb check)
+    total_compressed   = sum(i.compress_size for i in zf.infolist())
+    total_uncompressed = sum(i.file_size     for i in zf.infolist())
+    if total_compressed > 0:
+        ratio = total_uncompressed / total_compressed
+        if ratio > 100:
+            flags.append(f"Extreme compression ratio ({int(ratio)}:1) — possible zip bomb")
+            risk_score += 50
+        elif ratio > 20:
+            flags.append(f"High compression ratio ({int(ratio)}:1) — worth noting")
+            risk_score += 10
+
+    # 6. Safe inner-file analysis (1-level deep, non-executable types only)
+    if not needs_pwd:
+        SAFE_INNER_TYPES = {".pdf", ".docx", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg"}
+        for info in zf.infolist():
+            ext = os.path.splitext(info.filename)[1].lower()
+            if ext in SAFE_INNER_TYPES and info.file_size < 5 * 1024 * 1024:  # max 5MB inner
+                try:
+                    inner_data   = zf.read(info.filename)
+                    inner_result = _route_attachment(inner_data, info.filename, depth=1)
+                    if inner_result and inner_result.get("is_suspicious"):
+                        inner_results.append(inner_result)
+                        flags.append(f"Suspicious inner file: '{info.filename}' — {inner_result.get('summary','')}")
+                        risk_score += 20
+                except Exception:
+                    pass
+
+    is_suspicious = risk_score >= 30
+    result = {
+        "type":          "zip",
+        "filename":      filename,
+        "is_suspicious": is_suspicious,
+        "risk_score":    min(risk_score, 100),
+        "flags":         flags,
+        "inner_results": inner_results,
+        "summary":       f"ZIP analysis: {len(zf.namelist())} files inside, risk score {min(risk_score,100)}/100"
+    }
+    zf.close()
+    return result
+
+
+def analyze_image_attachment(data: bytes, filename: str) -> dict:
+    """
+    Analyze image attachment: magic bytes, OCR, EXIF, size ratio.
+    """
+    flags      = []
+    risk_score = 0
+    ocr_text   = ""
+
+    # 1. Magic byte check
+    ext = os.path.splitext(filename)[1].lower().lstrip(".")
+    if not verify_magic_bytes(data, ext):
+        flags.append(f"File extension '{ext}' doesn't match internal file signature — possible disguised file")
+        risk_score += 25
+
+    if not OCR_AVAILABLE:
+        return {
+            "type": "image", "filename": filename,
+            "is_suspicious": False, "risk_score": 0,
+            "flags": ["OCR not available — image content could not be analyzed"],
+            "summary": "Image analysis skipped (OCR unavailable)"
+        }
+
+    # 2. OCR text extraction
+    try:
+        img      = Image.open(io.BytesIO(data))
+        ocr_text = pytesseract.image_to_string(img).strip()
+
+        # 2a. Run text model on OCR result
+        if ocr_text:
+            text_result = run_text_model(ocr_text)
+            if text_result["is_phishing"]:
+                flags.append(f"OCR text classified as phishing ({text_result['confidence']}% confidence)")
+                risk_score += 40
+
+            # 2b. Check urgency keywords in OCR
+            urgency_words = ["verify", "urgent", "suspended", "click here", "confirm", "account", "login", "password"]
+            found_urgency = [w for w in urgency_words if w in ocr_text.lower()]
+            if found_urgency:
+                flags.append(f"Urgency/phishing keywords in image text: {', '.join(found_urgency)}")
+                risk_score += 20
+
+            # 2c. Extract URLs from OCR text
+            ocr_urls = re.findall(r'https?://[^\s]+', ocr_text)
+            for u in ocr_urls[:3]:
+                if run_url_model(u):
+                    flags.append(f"Phishing URL found in image text: {u}")
+                    risk_score += 30
+
+        # 3. File size vs dimension ratio (steganography hint)
+        width, height = img.size
+        expected_bytes = width * height * 3   # rough RGB estimate
+        actual_bytes   = len(data)
+        ratio = actual_bytes / max(expected_bytes, 1)
+        if ratio > 3.0:
+            flags.append(f"File size ({actual_bytes} bytes) is much larger than expected for its dimensions — possible hidden data")
+            risk_score += 15
+
+        # 4. EXIF metadata
+        try:
+            exif_data = img._getexif()
+            if exif_data:
+                software = exif_data.get(305, "")   # Tag 305 = Software
+                if software and any(k in software.lower() for k in ["phish", "hack", "kit", "exploit"]):
+                    flags.append(f"Suspicious EXIF software tag: {software}")
+                    risk_score += 20
+        except Exception:
+            pass
+
+    except Exception as e:
+        flags.append(f"Image could not be opened: {e}")
+
+    is_suspicious = risk_score >= 30
+    return {
+        "type":          "image",
+        "filename":      filename,
+        "is_suspicious": is_suspicious,
+        "risk_score":    min(risk_score, 100),
+        "flags":         flags,
+        "ocr_preview":   ocr_text[:300] if ocr_text else "",
+        "summary":       f"Image analysis: risk score {min(risk_score,100)}/100" + (f", OCR found {len(ocr_text)} chars" if ocr_text else "")
+    }
+
+
+def analyze_pdf_doc(data: bytes, filename: str) -> dict:
+    """
+    Analyze PDF, DOCX, XLSX files.
+    Extracts text, URLs, checks for embedded JS (PDF), macros (Office), remote templates.
+    """
+    flags      = []
+    risk_score = 0
+    ext        = os.path.splitext(filename)[1].lower()
+    all_text   = ""
+    all_urls   = []
+
+    # ── PDF ──────────────────────────────────────────────────────
+    if ext == ".pdf":
+        # 1. Magic bytes
+        if not verify_magic_bytes(data, "pdf"):
+            flags.append("File claims to be PDF but internal bytes don't match")
+            risk_score += 25
+
+        # 2. Embedded JavaScript
+        if b"/JS" in data or b"/JavaScript" in data:
+            flags.append("PDF contains embedded JavaScript — extremely rare in legitimate PDFs, common in exploits")
+            risk_score += 50
+
+        # 3. Embedded files
+        if b"/EmbeddedFile" in data:
+            flags.append("PDF has files embedded inside it — possible hidden executable")
+            risk_score += 35
+
+        # 4. Text + URL extraction
+        if PDF_AVAILABLE:
+            try:
+                with pdfplumber.open(io.BytesIO(data)) as pdf:
+                    for page in pdf.pages:
+                        pg_text = page.extract_text() or ""
+                        all_text += pg_text
+                        # Extract hyperlinks from annotations
+                        for annot in (page.annots or []):
+                            uri = annot.get("uri", "")
+                            if uri:
+                                all_urls.append(uri)
+            except Exception as e:
+                flags.append(f"PDF text extraction error: {e}")
+        else:
+            # Fallback: raw string extraction
+            strings = extract_printable_strings(data)
+            all_text = " ".join(strings[:200])
+
+    # ── DOCX ─────────────────────────────────────────────────────
+    elif ext == ".docx":
+        if DOCX_AVAILABLE:
+            try:
+                doc = python_docx.Document(io.BytesIO(data))
+                all_text = "\n".join(p.text for p in doc.paragraphs)
+                # Extract hyperlinks
+                for rel in doc.part.rels.values():
+                    if "hyperlink" in rel.reltype:
+                        all_urls.append(rel._target)
+            except Exception as e:
+                flags.append(f"DOCX extraction error: {e}")
+
+        # Macro check via oletools
+        if OLETOOLS_AVAILABLE:
+            try:
+                vba = VBA_Parser(filename, data=data)
+                if vba.detect_vba_macros():
+                    flags.append("DOCX contains VBA macros — macros can execute malicious code automatically")
+                    risk_score += 35
+                    for (_, _, _, vba_code) in vba.extract_macros():
+                        for kw in SUSPICIOUS_MACRO_KEYWORDS:
+                            if kw.lower() in vba_code.lower():
+                                flags.append(f"Macro contains dangerous keyword: '{kw}'")
+                                risk_score += 15
+                                break
+            except Exception:
+                pass
+
+        # Remote template injection check
+        # DOCX is a ZIP internally — check settings.xml.rels for external URLs
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            for name in zf.namelist():
+                if "settings" in name.lower() and name.endswith(".rels"):
+                    content = zf.read(name).decode(errors="ignore")
+                    ext_urls = re.findall(r'Target="(https?://[^"]+)"', content)
+                    if ext_urls:
+                        flags.append(f"Remote template injection detected — doc fetches from: {ext_urls[0]}")
+                        risk_score += 45
+            zf.close()
+        except Exception:
+            pass
+
+    # ── XLSX ─────────────────────────────────────────────────────
+    elif ext == ".xlsx":
+        if XLSX_AVAILABLE:
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+                for sheet in wb.worksheets:
+                    for row in sheet.iter_rows(max_row=50):
+                        for cell in row:
+                            if cell.value and isinstance(cell.value, str):
+                                all_text += cell.value + " "
+                wb.close()
+            except Exception as e:
+                flags.append(f"XLSX extraction error: {e}")
+
+        # Macro check for XLSX too
+        if OLETOOLS_AVAILABLE:
+            try:
+                vba = VBA_Parser(filename, data=data)
+                if vba.detect_vba_macros():
+                    flags.append("XLSX contains macros — unexpected for a standard spreadsheet")
+                    risk_score += 30
+            except Exception:
+                pass
+
+    # ── XLSM / DOCM (macro-enabled) ──────────────────────────────
+    elif ext in MACRO_EXTENSIONS:
+        flags.append(f"File is macro-enabled format ({ext}) — these can auto-execute code on open")
+        risk_score += 30
+        if OLETOOLS_AVAILABLE:
+            try:
+                vba = VBA_Parser(filename, data=data)
+                if vba.detect_vba_macros():
+                    for (_, _, _, vba_code) in vba.extract_macros():
+                        for kw in SUSPICIOUS_MACRO_KEYWORDS:
+                            if kw.lower() in vba_code.lower():
+                                flags.append(f"Macro contains dangerous call: '{kw}'")
+                                risk_score += 15
+
+                    # Check for auto-execution triggers
+                    for trigger in ["Auto_Open", "Document_Open", "Workbook_Open", "AutoOpen", "AutoExec"]:
+                        if trigger.lower() in vba_code.lower():
+                            flags.append(f"Macro auto-runs on file open via '{trigger}' — high risk")
+                            risk_score += 25
+            except Exception:
+                pass
+
+    # ── Common: text model + URL model on extracted content ──────
+    if all_text.strip():
+        text_result = run_text_model(all_text[:1000])
+        if text_result["is_phishing"]:
+            flags.append(f"Document text classified as phishing ({text_result['confidence']}% confidence)")
+            risk_score += 30
+
+    # Also grab inline URLs from raw text
+    inline_urls = re.findall(r'https?://[^\s<>"\']+', all_text)
+    all_urls    = list(set(all_urls + inline_urls))[:10]
+
+    if len(all_urls) > 7:
+        flags.append(f"Unusually high number of URLs ({len(all_urls)}) — legitimate docs rarely have this many")
+        risk_score += 15
+
+    phishing_urls = []
+    for u in all_urls[:5]:
+        if run_url_model(u):
+            phishing_urls.append(u)
+            flags.append(f"Phishing URL found in document: {u}")
+            risk_score += 25
+
+    is_suspicious = risk_score >= 30
+    return {
+        "type":          "document",
+        "filename":      filename,
+        "is_suspicious": is_suspicious,
+        "risk_score":    min(risk_score, 100),
+        "flags":         flags,
+        "urls_found":    all_urls[:5],
+        "phishing_urls": phishing_urls,
+        "summary":       f"Document analysis ({ext}): risk score {min(risk_score,100)}/100, {len(all_urls)} URLs found"
+    }
+
+
+def analyze_html_attachment(data: bytes, filename: str) -> dict:
+    """
+    Analyze HTML attachment for phishing indicators.
+    Checks links, forms, JS obfuscation, brand impersonation, iframes, meta-refresh.
+    """
+    flags      = []
+    risk_score = 0
+
+    try:
+        html_text = data.decode(errors="ignore")
+    except Exception:
+        return {
+            "type": "html", "filename": filename,
+            "is_suspicious": True, "risk_score": 60,
+            "flags": ["HTML file could not be decoded"],
+            "summary": "HTML decode failed"
+        }
+
+    if not BS4_AVAILABLE:
+        # Fallback: regex only
+        urls = re.findall(r'href=["\']?(https?://[^\s"\'<>]+)', html_text)
+        for u in urls[:5]:
+            if run_url_model(u):
+                flags.append(f"Phishing URL in HTML: {u}")
+                risk_score += 30
+        return {
+            "type": "html", "filename": filename,
+            "is_suspicious": risk_score >= 30,
+            "risk_score": min(risk_score, 100),
+            "flags": flags,
+            "summary": "Basic HTML analysis (BeautifulSoup not available)"
+        }
+
+    soup = BeautifulSoup(html_text, "html.parser")
+
+    # 1. All href links
+    all_hrefs = []
+    for tag in soup.find_all("a", href=True):
+        href        = tag["href"]
+        display_txt = tag.get_text(strip=True)
+        all_hrefs.append(href)
+
+        # Display text vs actual URL mismatch
+        if display_txt and re.match(r'https?://', display_txt):
+            display_domain = re.findall(r'https?://([^/\s]+)', display_txt)
+            href_domain    = re.findall(r'https?://([^/\s]+)', href)
+            if display_domain and href_domain and display_domain[0] != href_domain[0]:
+                flags.append(f"Link text says '{display_domain[0]}' but actually goes to '{href_domain[0]}' — classic phishing trick")
+                risk_score += 40
+
+    # Run URL model on hrefs
+    phishing_hrefs = []
+    for u in all_hrefs[:8]:
+        if u.startswith("http") and run_url_model(u):
+            phishing_hrefs.append(u)
+            flags.append(f"Phishing URL in HTML: {u}")
+            risk_score += 25
+
+    # 2. Form analysis
+    for form in soup.find_all("form"):
+        action = form.get("action", "")
+        if action.startswith("http"):
+            if run_url_model(action):
+                flags.append(f"Form submits data to phishing URL: {action}")
+                risk_score += 45
+        # Hidden fields
+        hidden = form.find_all("input", {"type": "hidden"})
+        if len(hidden) > 3:
+            flags.append(f"Form has {len(hidden)} hidden input fields — may be used to silently steal data")
+            risk_score += 15
+
+    # 3. JavaScript obfuscation
+    for script in soup.find_all("script"):
+        script_text = script.get_text()
+        for marker in OBFUSCATION_MARKERS:
+            if marker in script_text:
+                flags.append(f"Obfuscated JavaScript detected: '{marker}' — code is deliberately hidden")
+                risk_score += 35
+                break
+
+    # 4. Brand impersonation: page claims to be a brand but URLs don't match
+    page_text  = soup.get_text().lower()
+    known_brands = {
+        "paypal":    "paypal.com",
+        "amazon":    "amazon.com",
+        "google":    "google.com",
+        "microsoft": "microsoft.com",
+        "apple":     "apple.com",
+        "netflix":   "netflix.com",
+        "bank of america": "bankofamerica.com",
+        "hdfc":      "hdfcbank.com",
+        "sbi":       "sbi.co.in",
+    }
+    for brand, real_domain in known_brands.items():
+        if brand in page_text:
+            bad_links = [h for h in all_hrefs if h.startswith("http") and real_domain not in h]
+            if bad_links:
+                flags.append(f"Page claims to be {brand.title()} but links don't go to {real_domain} — brand impersonation")
+                risk_score += 40
+                break
+
+    # 5. iFrame injection
+    for iframe in soup.find_all("iframe"):
+        src = iframe.get("src", "")
+        if src.startswith("http"):
+            flags.append(f"External iframe detected pointing to: {src[:80]}")
+            risk_score += 20
+
+    # 6. Meta refresh redirect
+    for meta in soup.find_all("meta"):
+        http_equiv = meta.get("http-equiv", "").lower()
+        if http_equiv == "refresh":
+            content = meta.get("content", "")
+            redirect_url = re.findall(r'url=(.+)', content, re.IGNORECASE)
+            if redirect_url:
+                flags.append(f"Instant redirect (meta refresh) to: {redirect_url[0][:80]} — hides true destination")
+                risk_score += 30
+
+    # 7. Run text model on visible page text
+    visible_text = soup.get_text()[:1000]
+    if visible_text:
+        text_result = run_text_model(visible_text)
+        if text_result["is_phishing"]:
+            flags.append(f"Page content classified as phishing ({text_result['confidence']}% confidence)")
+            risk_score += 25
+
+    is_suspicious = risk_score >= 30
+    return {
+        "type":           "html",
+        "filename":       filename,
+        "is_suspicious":  is_suspicious,
+        "risk_score":     min(risk_score, 100),
+        "flags":          flags,
+        "phishing_hrefs": phishing_hrefs[:3],
+        "summary":        f"HTML analysis: risk score {min(risk_score,100)}/100, {len(all_hrefs)} links checked"
+    }
+
+
+def _route_attachment(data: bytes, filename: str, depth: int = 0) -> dict:
+    """
+    Route attachment bytes to the correct analyzer based on extension.
+    depth=1 means we're already inside a ZIP — don't recurse further.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+
+    # Instant danger extensions — no further analysis needed
+    if ext in INSTANT_DANGER_EXTENSIONS:
+        return {
+            "type":          "script",
+            "filename":      filename,
+            "is_suspicious": True,
+            "risk_score":    90,
+            "flags":         [f"File type '{ext}' is inherently high risk — can execute system commands directly"],
+            "summary":       f"High-risk script file type: {ext}"
+        }
+
+    if ext in (".exe",):
+        return analyze_exe(data, filename)
+
+    if ext in (".zip", ".rar", ".7z", ".gz", ".tar") and depth == 0:
+        return analyze_zip(data, filename)
+
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"):
+        return analyze_image_attachment(data, filename)
+
+    if ext in (".pdf", ".docx", ".xlsx") or ext in MACRO_EXTENSIONS:
+        return analyze_pdf_doc(data, filename)
+
+    if ext in (".html", ".htm"):
+        return analyze_html_attachment(data, filename)
+
+    # Unknown type — basic entropy check
+    entropy = calculate_entropy(data)
+    flags   = []
+    risk    = 0
+    if entropy > 7.2:
+        flags.append(f"Unknown file type with very high entropy ({entropy}) — could be an obfuscated payload")
+        risk = 40
+    return {
+        "type":          "unknown",
+        "filename":      filename,
+        "is_suspicious": risk >= 30,
+        "risk_score":    risk,
+        "entropy":       entropy,
+        "flags":         flags,
+        "summary":       f"Unknown file type ({ext}), entropy: {entropy}/8.0"
+    }
+
+
+def scan_attachments(service, msg_id: str, payload: dict) -> list:
+    """
+    Find and scan all attachments in an email payload.
+    Returns list of attachment result dicts.
+    Safely downloads bytes via Gmail API — never executes anything.
+    """
+    results = []
+
+    def _walk(parts):
+        for part in parts:
+            filename    = part.get("filename", "")
+            body        = part.get("body", {})
+            attachment_id = body.get("attachmentId")
+            mime_type   = part.get("mimeType", "")
+
+            # Recurse into multipart
+            if part.get("parts"):
+                _walk(part["parts"])
+                continue
+
+            if not filename or not attachment_id:
+                continue
+
+            # Skip tiny parts (likely inline images in email signature)
+            if body.get("size", 0) < 100:
+                continue
+
+            # Skip very large attachments (>15MB) — too slow for real-time scan
+            if body.get("size", 0) > 15 * 1024 * 1024:
+                results.append({
+                    "type":          "skipped",
+                    "filename":      filename,
+                    "is_suspicious": False,
+                    "risk_score":    0,
+                    "flags":         ["File too large to scan in real-time (>15MB)"],
+                    "summary":       f"Skipped large file: {filename}"
+                })
+                continue
+
+            try:
+                att_data = service.users().messages().attachments().get(
+                    userId="me", messageId=msg_id, id=attachment_id
+                ).execute()
+                raw_bytes = base64.urlsafe_b64decode(att_data["data"] + "==")
+                result    = _route_attachment(raw_bytes, filename)
+                results.append(result)
+                print(f"   📎 Scanned attachment '{filename}': suspicious={result['is_suspicious']}, score={result['risk_score']}")
+            except Exception as e:
+                print(f"   ⚠️ Could not download attachment '{filename}': {e}")
+                results.append({
+                    "type":          "error",
+                    "filename":      filename,
+                    "is_suspicious": False,
+                    "risk_score":    0,
+                    "flags":         [f"Could not download attachment for scanning: {e}"],
+                    "summary":       f"Download failed: {filename}"
+                })
+
+    top_parts = payload.get("parts", [])
+    if top_parts:
+        _walk(top_parts)
+
+    return results
 
 
 # ════════════════════════════════════════════════════════════════
@@ -322,7 +1165,7 @@ def auth_status():
 
 
 # ════════════════════════════════════════════════════════════════
-#  GMAIL — SCAN
+#  GMAIL — SCAN  (now includes attachment scanning)
 # ════════════════════════════════════════════════════════════════
 
 @app.route("/gmail/scan")
@@ -403,7 +1246,7 @@ def gmail_scan():
         # 2. URL CHECK
         urls_found = re.findall(r'https?://[^\s<>"\']+', snippet + " " + body)
         urls_found = list(set(urls_found))[:5]
-        
+
         has_malicious_url = False
         url_alerts = []
         if url_model is not None and url_scaler is not None:
@@ -421,8 +1264,23 @@ def gmail_scan():
         # 3. IMPERSONATION CHECK
         impersonation_result = check_impersonation(sender, trusted_contacts)
 
+        # 4. ATTACHMENT SCAN  ← NEW
+        attachment_results   = []
+        has_suspicious_attachment = False
+        try:
+            attachment_results = scan_attachments(service, msg_meta["id"], msg_data.get("payload", {}))
+            has_suspicious_attachment = any(a.get("is_suspicious") for a in attachment_results)
+        except Exception as att_err:
+            print(f"   ⚠️ Attachment scan failed for {msg_meta['id']}: {att_err}")
+
         in_spam     = (folder == "SPAM")
-        is_phishing = (pred_text == 1) or in_spam or has_malicious_url or impersonation_result["is_impersonation"]
+        is_phishing = (
+            (pred_text == 1)
+            or in_spam
+            or has_malicious_url
+            or impersonation_result["is_impersonation"]
+            or has_suspicious_attachment   # ← NEW signal
+        )
         if is_phishing:
             phishing_count += 1
 
@@ -439,6 +1297,13 @@ def gmail_scan():
             "text_result":    {"confidence": text_conf, "is_phishing": bool(pred_text == 1)},
             "url_result":     {"has_malicious_url": has_malicious_url, "malicious_urls": url_alerts},
             "impersonation":  impersonation_result,
+            # ── NEW ──
+            "attachment_result": {
+                "has_attachments":         len(attachment_results) > 0,
+                "attachment_count":        len(attachment_results),
+                "has_suspicious_attachment": has_suspicious_attachment,
+                "attachments":             attachment_results,
+            },
         })
 
     safe_count    = len(emails) - phishing_count
@@ -468,6 +1333,10 @@ def explain_email():
     urls    = (data or {}).get("urls_found", [])
     conf    = (data or {}).get("confidence", 0)
     folder  = (data or {}).get("folder", "INBOX")
+    # Attachment context passed from frontend
+    att_summary = (data or {}).get("attachment_summary", "")
+
+    att_context = f"\n- Attachment findings: {att_summary}" if att_summary else ""
 
     prompt = f"""You are a cybersecurity expert and educator helping regular users understand phishing threats.
 
@@ -479,7 +1348,7 @@ EMAIL DETAILS:
 - Folder: {folder}
 - AI Confidence it's phishing: {conf}%
 - URLs found: {', '.join(urls) if urls else 'None'}
-- Content preview: {(body or snippet)[:400]}
+- Content preview: {(body or snippet)[:400]}{att_context}
 
 Respond ONLY with a valid JSON object in this exact format (no markdown, no extra text):
 {{
@@ -499,7 +1368,6 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
     ai_text = call_gemini(prompt)
 
     if not ai_text:
-        # Fallback rule-based explanation
         flags = []
         if "urgent" in (subject + snippet).lower() or "immediately" in (subject + snippet).lower():
             flags.append("Uses urgency language to pressure you into acting fast")
@@ -509,19 +1377,20 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
             flags.append("Gmail's own filters marked this as spam")
         if conf > 80:
             flags.append(f"AI model is {conf}% confident this is phishing")
+        if att_summary:
+            flags.append(f"Suspicious attachment: {att_summary}")
 
         return jsonify({
             "verdict_summary": "This email shows multiple signs of a phishing attempt.",
             "red_flags": flags or ["Suspicious content pattern detected by AI", "Unusual sender behavior", "Content matches known phishing templates"],
             "what_attacker_wants": "Likely trying to steal your login credentials or personal information.",
-            "what_to_do": "Do not click any links. Mark as spam and delete immediately.",
+            "what_to_do": "Do not click any links or open attachments. Mark as spam and delete immediately.",
             "how_to_spot_next_time": "Legitimate companies never ask for sensitive info via email urgently.",
             "danger_level": "HIGH" if conf > 80 else "MEDIUM",
             "danger_reason": "High AI confidence score with suspicious content patterns."
         })
 
     try:
-        # Strip any markdown fencing if present
         clean = ai_text.strip()
         if clean.startswith("```"):
             clean = re.sub(r"```[a-z]*\n?", "", clean).strip().rstrip("`").strip()
@@ -533,10 +1402,79 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
             "verdict_summary": "This email shows signs of a phishing attempt.",
             "red_flags": ["Suspicious sender pattern", "Content matches phishing templates", "Unusual link structure"],
             "what_attacker_wants": "Trying to steal credentials or personal data.",
-            "what_to_do": "Do not click any links. Delete this email immediately.",
+            "what_to_do": "Do not click any links or open attachments. Delete this email immediately.",
             "how_to_spot_next_time": "Always verify sender identity through official channels.",
             "danger_level": "HIGH",
             "danger_reason": "Multiple phishing indicators detected."
+        })
+
+
+# ════════════════════════════════════════════════════════════════
+#  EXPLAIN — ATTACHMENT  (NEW — Gemini powered)
+# ════════════════════════════════════════════════════════════════
+
+@app.route("/explain/attachment", methods=["POST"])
+def explain_attachment():
+    """
+    Takes a single attachment result dict and asks Gemini to explain
+    in plain English why it's suspicious.
+    """
+    data       = request.get_json() or {}
+    filename   = data.get("filename", "unknown")
+    file_type  = data.get("type", "unknown")
+    risk_score = data.get("risk_score", 0)
+    flags      = data.get("flags", [])
+    summary    = data.get("summary", "")
+    entropy    = data.get("entropy", None)
+
+    entropy_line = f"\n- Entropy: {entropy}/8.0 (7.2+ = packed/obfuscated)" if entropy is not None else ""
+
+    prompt = f"""You are a cybersecurity educator explaining a suspicious email attachment to an everyday user.
+
+ATTACHMENT DETAILS:
+- Filename: {filename}
+- File type: {file_type}
+- Risk score: {risk_score}/100
+- Summary: {summary}{entropy_line}
+- Detected issues:
+{chr(10).join(f'  * {f}' for f in flags[:8])}
+
+Explain this clearly to a non-technical person. Respond ONLY with valid JSON (no markdown):
+{{
+  "verdict_summary": "Plain English: why is this file dangerous?",
+  "red_flags": ["Issue 1 explained simply", "Issue 2 explained simply", "Issue 3 explained simply"],
+  "what_happens_if_opened": "Exactly what could happen if the user opens this file",
+  "what_to_do": "What the user should do right now",
+  "technical_insight": "One sentence explaining the attack technique used",
+  "danger_level": "HIGH" or "MEDIUM" or "LOW"
+}}"""
+
+    ai_text = call_gemini(prompt)
+
+    if not ai_text:
+        return jsonify({
+            "verdict_summary": f"This {file_type} file has a risk score of {risk_score}/100 and shows signs of being malicious.",
+            "red_flags": flags[:3] or ["Suspicious file characteristics detected"],
+            "what_happens_if_opened": "Could install malware, steal your data, or give attackers access to your computer.",
+            "what_to_do": "Do NOT open this file. Delete the email immediately and report it to your IT team.",
+            "technical_insight": summary,
+            "danger_level": "HIGH" if risk_score >= 60 else "MEDIUM" if risk_score >= 30 else "LOW"
+        })
+
+    try:
+        clean = ai_text.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r"```[a-z]*\n?", "", clean).strip().rstrip("`").strip()
+        return jsonify(json.loads(clean))
+    except Exception as e:
+        print(f"❌ Gemini JSON parse error: {e}")
+        return jsonify({
+            "verdict_summary": f"File flagged with risk score {risk_score}/100.",
+            "red_flags": flags[:3] or ["Suspicious characteristics"],
+            "what_happens_if_opened": "May execute malicious code or steal data.",
+            "what_to_do": "Do not open this file. Delete and report.",
+            "technical_insight": summary,
+            "danger_level": "HIGH" if risk_score >= 60 else "MEDIUM"
         })
 
 
@@ -623,7 +1561,7 @@ def explain_text():
     text       = (data or {}).get("text", "")
     prediction = (data or {}).get("prediction", "phishing")
     confidence = (data or {}).get("confidence", 0)
-    source     = (data or {}).get("source", "email/sms")  # 'email/sms' or 'screenshot'
+    source     = (data or {}).get("source", "email/sms")
 
     prompt = f"""You are a cybersecurity educator. A user submitted a {source} for phishing analysis.
 
