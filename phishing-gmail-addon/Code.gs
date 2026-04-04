@@ -7,8 +7,8 @@
  *  Run:  npx localtunnel --port 5000
  */
 
-var NGROK_URL      = "https://wise-moles-watch.loca.lt";
-var GEMINI_API_KEY = "AIzaSyCKMlonavYx2WM4ftALenJ-xD8IvzeU-zE";
+var NGROK_URL      = "https://real-humans-joke.loca.lt";
+var GEMINI_API_KEY = "AIzaSyBACEAnBkQx-TxhOFERINsMrMfLPu9zxZk";
 
 // ═══════════════════════════════════════════════════════════════════
 //  HOMEPAGE
@@ -670,6 +670,7 @@ function scanCurrentEmail(e, isAutoScan) {
   }
 
   return buildResultCard({
+    messageId:       messageId,
     tier:            tier,
     confidence:      confidence,
     xaiExplanation:  xaiExplanation,
@@ -791,6 +792,152 @@ function getGeminiExplanation(emailText, attackType, signals) {
 
 
 // ═══════════════════════════════════════════════════════════════════
+//  FEATURE 7: AI-GENERATED PHISHING DETECTION
+//  Uses Gemini to detect LLM fingerprints in the email.
+//  Score is INDEPENDENT — does NOT influence phishing risk.
+// ═══════════════════════════════════════════════════════════════════
+
+function buildAIFingerprintCard(e) {
+  var messageId = e.parameters.messageId;
+  if (e.messageMetadata && e.messageMetadata.accessToken) {
+    GmailApp.setCurrentMessageAccessToken(e.messageMetadata.accessToken);
+  }
+  var message  = GmailApp.getMessageById(messageId);
+  var subject  = message.getSubject()   || "";
+  var body     = message.getPlainBody() || "";
+  var sender   = message.getFrom()      || "";
+  var combined = "Subject: " + subject + "\nFrom: " + sender + "\n\n" + body;
+
+  var ai = detectAIGeneration(combined);
+  var aiScore   = ai.ai_score || 0;
+  var aiFingers = ai.fingerprints || [];
+  var aiEmoji   = aiScore >= 70 ? "🤖" : aiScore >= 40 ? "⚠️" : "✅";
+  var aiLabel   = aiScore >= 70 ? "Likely AI-Generated"
+                : aiScore >= 40 ? "Possibly AI-Assisted"
+                : "Likely Human-Written";
+
+  var card = CardService.newCardBuilder();
+  card.setHeader(
+    CardService.newCardHeader()
+      .setTitle("🤖 LLM Fingerprint Result")
+      .setSubtitle(aiEmoji + "  " + aiScore + "% — " + aiLabel)
+  );
+
+  var aiSection = CardService.newCardSection()
+    .addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel("⚠️  This score does NOT affect the Phishing Risk Score")
+        .setText("It measures independently whether the email content appears to be machine-generated, which is increasingly common in sophisticated phishing campaigns.")
+        .setWrapText(true)
+    );
+
+  if (aiFingers.length > 0) {
+    var fingerText = "";
+    for (var fi = 0; fi < aiFingers.length; fi++) {
+      fingerText += "• " + aiFingers[fi] + "\n";
+    }
+    aiSection.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel("LLM Fingerprints Detected")
+        .setText(fingerText.trim())
+        .setWrapText(true)
+    );
+  } else {
+    aiSection.addWidget(
+      CardService.newTextParagraph()
+        .setText("No distinct LLM writing patterns detected.")
+    );
+  }
+  
+  aiSection.addWidget(
+    CardService.newButtonSet()
+      .addButton(
+        CardService.newTextButton()
+          .setText("🏠  Back to Home")
+          .setOnClickAction(CardService.newAction().setFunctionName("buildHomepage"))
+      )
+  );
+
+  card.addSection(aiSection);
+  return card.build();
+}
+
+function detectAIGeneration(emailText) {
+  var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" + GEMINI_API_KEY;
+
+  var prompt =
+    "You are an AI text detection expert specialising in identifying LLM-generated phishing emails. " +
+    "Analyse the following email text and estimate the probability (0-100) that it was written by an AI/LLM (such as GPT, Gemini, or Claude). " +
+    "Look specifically for these LLM fingerprints:\n" +
+    "- Unnaturally flawless grammar and punctuation with zero typos\n" +
+    "- Generic formal salutations ('Dear valued customer', 'Dear user')\n" +
+    "- Polite urgency contradiction (threatening tone delivered very formally)\n" +
+    "- LLM-typical transition phrases ('Please note that', 'Rest assured', 'We kindly request', 'Please be advised')\n" +
+    "- Uniform sentence complexity with no human 'messiness' or colloquialisms\n" +
+    "- Perfectly structured paragraphs with balanced length\n" +
+    "- Overly diplomatic threat language\n" +
+    "- Brand impersonation that is syntactically perfect but feels generic\n\n" +
+    "Return ONLY valid JSON with no markdown, no code fences: " +
+    "{\"ai_score\": 85, \"fingerprints\": [\"Unnaturally perfect grammar\", \"LLM phrase: 'Please note that'\", \"Polite urgency contradiction\"]}\n\n" +
+    "Email:\n" + emailText.substring(0, 2500);
+
+  var options = {
+    method:             "post",
+    contentType:        "application/json",
+    payload:            JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(endpoint, options);
+    if (response.getResponseCode() === 200) {
+      var data = JSON.parse(response.getContentText());
+      if (data.candidates && data.candidates[0]) {
+        var raw = data.candidates[0].content.parts[0].text.trim();
+        raw = raw.replace(/^```[a-z]*\n?/i, "").replace(/```$/i, "").trim();
+        return JSON.parse(raw);
+      }
+    }
+  } catch (_) {}
+
+  // Fallback: heuristic-only score if Gemini fails
+  return _heuristicAIScore(emailText);
+}
+
+/** Lightweight heuristic fallback if Gemini is unavailable. */
+function _heuristicAIScore(text) {
+  var score       = 0;
+  var fingerprints = [];
+  var t = text.toLowerCase();
+
+  var llmPhrases = [
+    ["please note that",       "LLM phrase: 'Please note that'"],
+    ["rest assured",           "LLM phrase: 'Rest assured'"],
+    ["we kindly request",      "LLM phrase: 'We kindly request'"],
+    ["please be advised",      "LLM phrase: 'Please be advised'"],
+    ["dear valued",            "Generic salutation: 'Dear valued...'"],
+    ["dear user",              "Generic salutation: 'Dear user'"],
+    ["dear customer",          "Generic salutation: 'Dear customer'"],
+    ["your account has been",  "Formal account-threat phrasing"],
+    ["immediate action",       "Formal urgency phrasing"],
+    ["failure to comply",      "Polite threat phrasing"],
+  ];
+
+  for (var i = 0; i < llmPhrases.length; i++) {
+    if (t.indexOf(llmPhrases[i][0]) !== -1) {
+      score += 10;
+      fingerprints.push(llmPhrases[i][1]);
+    }
+  }
+
+  // Penalise very short text (AI tends to write complete paragraphs)
+  if (text.length < 100) score = Math.max(0, score - 20);
+
+  return { ai_score: Math.min(score, 95), fingerprints: fingerprints };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  RESULT CARD — all features surfaced here
 // ═══════════════════════════════════════════════════════════════════
 
@@ -871,6 +1018,33 @@ function buildResultCard(d) {
             .setTopLabel("Layer 3 — Attachment Scanner  (5% weight)")
             .setText(attPct > 0 ? attPct + "% phishing confidence" : "No attachments detected")
             .setIcon(CardService.Icon.STAR)
+        )
+    );
+  }
+
+  // ── FEATURE 7: AI-Generated Phishing Detection Button ────────────────
+  if (d.messageId) {
+    card.addSection(
+      CardService.newCardSection()
+        .setHeader("🤖  LLM Fingerprint Detection")
+        .addWidget(
+          CardService.newDecoratedText()
+            .setText("Check if this email was generated by an AI (like ChatGPT or Gemini). This is an independent analysis and does NOT affect the phishing risk score.")
+            .setWrapText(true)
+        )
+        .addWidget(
+          CardService.newButtonSet()
+            .addButton(
+              CardService.newTextButton()
+                .setText("🕵️  Scan for AI Fingerprints")
+                .setOnClickAction(
+                  CardService.newAction()
+                    .setFunctionName("buildAIFingerprintCard")
+                    .setParameters({ messageId: d.messageId })
+                )
+                .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+                .setBackgroundColor("#00796b")
+            )
         )
     );
   }
