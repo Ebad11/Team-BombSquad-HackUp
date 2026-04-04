@@ -90,7 +90,7 @@ DEVICE = "cuda" if (TORCH_AVAILABLE and torch.cuda.is_available()) else "cpu"
 # =============================================================================
 #  RISK THRESHOLD  — single cutoff: >= 0.70 → PHISHING, else → SAFE
 # =============================================================================
-PHISHING_THRESHOLD = 0.70
+PHISHING_THRESHOLD = 0.80
 
 def risk_tier(score: float) -> dict:
     """
