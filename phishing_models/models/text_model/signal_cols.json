@@ -1,0 +1,10 @@
+[
+  "has_urgency",
+  "has_financial",
+  "has_suspicious",
+  "has_url",
+  "exclamation_count",
+  "caps_ratio",
+  "text_length",
+  "word_count"
+]
