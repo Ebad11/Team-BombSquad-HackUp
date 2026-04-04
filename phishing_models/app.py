@@ -1,730 +1,824 @@
 """
-PhishGuard v3 — Production-Ready Hybrid Detection Pipeline
-==========================================================
-8-Stage Architecture:
-  Stage 1: URL ML Model (35-feature stacked ensemble)
-  Stage 2: Text ML Model (TF-IDF stacked ensemble + transactional fix)
-  Stage 3: Rule-Based Engine (deterministic risk scoring)
-  Stage 4: Reputation Layer (whitelist / blacklist)
-  Stage 5: Anomaly Detection (Isolation Forest on safe URLs)
-  Stage 6: Ensemble Decision Engine (weighted combination)
-  Stage 7: Confidence & Uncertainty Estimation
-  Stage 8: Final Classification with Explainability
+=============================================================================
+  Phishing Detection API — Flask Backend
+=============================================================================
+  Accepts:
+    • A single URL           → URL feature model (XGBoost + LR)
+    • Full email content     → Splits into URL(s) + Body text + Attachments
+                               Runs each through its specialist model
+                               Combines scores via Risk Engine
+
+  Models expected (set paths via env or defaults below):
+    URL_MODEL_DIR    → folder with xgb_model.pkl, lr_model.pkl, scaler.pkl,
+                       feature_cols.json
+    TEXT_MODEL_DIR   → folder with tfidf_vectorizer.pkl, lr_model.pkl,
+                       signal_cols.json, distilbert_model/
+
+  Risk Tier:
+    score >= 0.70  →  PHISHING  🔴
+    score <  0.70  →  SAFE      🟢
+=============================================================================
 """
 
-from flask import Flask, request, jsonify, send_from_directory
-import joblib, os, re, math, string, warnings
-import numpy as np
-import pandas as pd
-from datetime import datetime
+import os, re, io, math, json, pickle, logging, warnings, hashlib
 from collections import deque
-from sklearn.ensemble import IsolationForest
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 warnings.filterwarnings("ignore")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
+log = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder="static", template_folder="templates")
-
-# ══════════════════════════════════════════════════════════════════
-#  CONSTANTS  (exact copies from V3 notebook)
-# ══════════════════════════════════════════════════════════════════
-TOP_BRANDS = [
-    'google','microsoft','apple','amazon','paypal','facebook','instagram',
-    'twitter','netflix','linkedin','dropbox','adobe','yahoo','outlook',
-    'office365','onedrive','sharepoint','github','stackoverflow','reddit',
-    'whatsapp','telegram','discord','zoom','slack','chase','wellsfargo',
-    'bankofamerica','citibank','barclays','hsbc','dhl','fedex','ups',
-    'usps','ebay','walmart','target','steam','epicgames'
-]
-
-TRUSTED_DOMAINS = {
-    'google.com','googleapis.com','google.co.in','youtube.com',
-    'microsoft.com','live.com','outlook.com','office.com',
-    'apple.com','icloud.com',
-    'amazon.com','amazon.in','amazonaws.com',
-    'github.com','githubusercontent.com',
-    'stackoverflow.com','stackexchange.com',
-    'linkedin.com','facebook.com','instagram.com','twitter.com','x.com',
-    'paypal.com','ebay.com','reddit.com','wikipedia.org',
-    'netflix.com','zoom.us','slack.com','discord.com',
-    'dropbox.com','adobe.com','yahoo.com','bing.com',
-    'cloudflare.com','akamai.com','fastly.com',
-    'npmjs.com','pypi.org','docker.com','kubernetes.io',
-    'notion.so','figma.com','canva.com','vercel.com','netlify.com',
-    'heroku.com','railway.app','render.com'
-}
-
-BLACKLISTED_DOMAINS = {
-    'login-secure.tk','paypa1-account.com','fakebank.login-secure.tk',
-    'apple-id-verify.com','secure-login-verify.paypa1-account.com',
-}
-
-SUSPICIOUS_TLD = {
-    'tk','ml','ga','cf','gq','xyz','top','click','link',
-    'work','loan','win','download','zip','review','country',
-    'kim','science','party','trade','date','faith','racing'
-}
-
-SUSPICIOUS_KW = [
-    'login','verify','secure','update','account','banking',
-    'confirm','password','signin','webscr','paypal','free',
-    'prize','winner','ebayisapi','suspended','alert','urgent',
-    'validate','authenticate','reactivate','recover','unlock'
-]
-
-TRANSACTIONAL_KW = [
-    'your order','has shipped','delivery','tracking number',
-    'otp','one-time','verification code','valid for',
-    'receipt','invoice','your account statement',
-    'thank you for your purchase','booking confirmation',
-    'will arrive','order #','order number','shipment',
-    'check-in','check in','reservation confirmed'
-]
-
-URGENCY_KW = [
-    'urgent','immediately','suspended','expires','act now',
-    'verify now','click here','limited time','your account has been',
-    'unusual activity','security alert','confirm your identity',
-    'update your information','will be terminated'
-]
-
-HOMOGLYPHS = {
-    '0':'o','1':'l','3':'e','4':'a','5':'s',
-    '6':'g','7':'t','8':'b','@':'a','$':'s'
-}
-
-# ══════════════════════════════════════════════════════════════════
-#  MODEL LOADING
-# ══════════════════════════════════════════════════════════════════
-BASE   = os.path.dirname(os.path.abspath(__file__))
-MDIR   = os.path.join(BASE, "models")
-
-print("🔄 Loading models...")
-url_model  = joblib.load(os.path.join(MDIR, "url_model.pkl"))
-url_scaler = joblib.load(os.path.join(MDIR, "url_scaler.pkl"))
-text_model = joblib.load(os.path.join(MDIR, "text_model.pkl"))
-tfidf      = joblib.load(os.path.join(MDIR, "tfidf.pkl"))
+# ── Optional heavy imports (graceful degradation if GPU unavailable) ──────────
+try:
+    import torch
+    from transformers import (
+        DistilBertTokenizerFast,
+        DistilBertForSequenceClassification,
+    )
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    log.warning("PyTorch/Transformers not installed — DistilBERT disabled.")
 
 try:
-    URL_THRESH  = float(joblib.load(os.path.join(MDIR, "url_threshold.pkl")))
-    TEXT_THRESH = float(joblib.load(os.path.join(MDIR, "text_threshold.pkl")))
-except:
-    URL_THRESH, TEXT_THRESH = 0.4336, 0.4324
+    import xgboost as xgb
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+    log.warning("XGBoost not installed — URL XGB model disabled.")
 
-print(f"✅ Models loaded | URL thresh={URL_THRESH:.4f} | Text thresh={TEXT_THRESH:.4f}")
+try:
+    import nltk
+    from nltk.corpus import stopwords
+    from nltk.stem import WordNetLemmatizer
+    from nltk.tokenize import word_tokenize
+    for r in ["punkt", "punkt_tab", "stopwords", "wordnet", "omw-1.4",
+              "averaged_perceptron_tagger", "averaged_perceptron_tagger_eng"]:
+        nltk.download(r, quiet=True)
+    NLTK_AVAILABLE = True
+    _lemmatizer = WordNetLemmatizer()
+    _stop_words = set(stopwords.words("english"))
+except Exception:
+    NLTK_AVAILABLE = False
+    log.warning("NLTK not fully available — basic text cleaning only.")
 
-# ══════════════════════════════════════════════════════════════════
-#  ISOLATION FOREST — train on safe URL features at startup
-# ══════════════════════════════════════════════════════════════════
-print("🔄 Training Isolation Forest on safe URL profiles...")
+try:
+    import tldextract
+    TLD_AVAILABLE = True
+except ImportError:
+    TLD_AVAILABLE = False
 
-_safe_url_profiles = [
-    # Typical safe URL feature vectors [url_len, dots, hyphens, digits, https,
-    # ip, kw, subs, path_len, entropy, at, depth, query_len, special, susp_tld]
-    [20, 2, 0, 0, 1, 0, 0, 0, 1,  3.2, 0, 2, 0,  0, 0],
-    [25, 2, 0, 0, 1, 0, 0, 0, 5,  3.5, 0, 3, 0,  0, 0],
-    [30, 2, 0, 0, 1, 0, 0, 1, 10, 3.8, 0, 4, 0,  0, 0],
-    [35, 3, 0, 2, 1, 0, 0, 1, 15, 3.9, 0, 5, 10, 2, 0],
-    [18, 1, 0, 0, 1, 0, 0, 0, 1,  3.0, 0, 1, 0,  0, 0],
-    [22, 2, 0, 0, 1, 0, 0, 0, 3,  3.3, 0, 2, 0,  0, 0],
-    [40, 3, 0, 3, 1, 0, 0, 1, 20, 4.0, 0, 6, 15, 3, 0],
-    [28, 2, 1, 1, 1, 0, 0, 0, 8,  3.6, 0, 3, 0,  0, 0],
-    [15, 1, 0, 0, 1, 0, 0, 0, 0,  2.9, 0, 1, 0,  0, 0],
-    [50, 3, 0, 4, 1, 0, 0, 2, 25, 4.1, 0, 7, 20, 4, 0],
+from urllib.parse import urlparse
+from scipy.sparse import hstack, csr_matrix
+
+# =============================================================================
+#  CONFIG — override via environment variables
+# =============================================================================
+URL_MODEL_DIR  = Path(os.getenv("URL_MODEL_DIR",  "models/url_model"))
+TEXT_MODEL_DIR = Path(os.getenv("TEXT_MODEL_DIR", "models/text_model"))
+BERT_MODEL_DIR = TEXT_MODEL_DIR / "distilbert_model"
+MAX_UPLOAD_MB  = int(os.getenv("MAX_UPLOAD_MB", 10))
+ALLOWED_ATTACH = {".txt", ".eml", ".msg", ".pdf", ".html", ".htm"}
+DEVICE = "cuda" if (TORCH_AVAILABLE and torch.cuda.is_available()) else "cpu"
+
+# =============================================================================
+#  RISK THRESHOLD  — single cutoff: >= 0.70 → PHISHING, else → SAFE
+# =============================================================================
+PHISHING_THRESHOLD = 0.70
+
+def risk_tier(score: float) -> dict:
+    """
+    Binary classification:
+      score >= 0.70  →  PHISHING  (red)
+      score <  0.70  →  SAFE      (green)
+    """
+    if score >= PHISHING_THRESHOLD:
+        return {"label": "PHISHING", "color": "#FF2D2D", "score": round(score, 4)}
+    return {"label": "SAFE", "color": "#00C853", "score": round(score, 4)}
+
+# =============================================================================
+#  MODEL REGISTRY  (lazy-loaded singletons)
+# =============================================================================
+_registry: dict = {}
+
+def _load_pickle(path: Path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+def get_url_models():
+    if "url" not in _registry:
+        try:
+            xgb_model = _load_pickle(URL_MODEL_DIR / "xgb_model.pkl")
+            lr_model  = _load_pickle(URL_MODEL_DIR / "lr_model.pkl")
+            scaler    = _load_pickle(URL_MODEL_DIR / "scaler.pkl")
+            with open(URL_MODEL_DIR / "feature_cols.json") as f:
+                feature_cols = json.load(f)
+            _registry["url"] = dict(xgb=xgb_model, lr=lr_model,
+                                    scaler=scaler, cols=feature_cols)
+            log.info("✅ URL models loaded.")
+        except Exception as e:
+            log.error(f"URL model load failed: {e}")
+            _registry["url"] = None
+    return _registry["url"]
+
+def get_text_models():
+    if "text" not in _registry:
+        try:
+            tfidf    = _load_pickle(TEXT_MODEL_DIR / "tfidf_vectorizer.pkl")
+            lr_model = _load_pickle(TEXT_MODEL_DIR / "lr_model.pkl")
+            with open(TEXT_MODEL_DIR / "signal_cols.json") as f:
+                signal_cols = json.load(f)
+            _registry["text"] = dict(tfidf=tfidf, lr=lr_model,
+                                     signal_cols=signal_cols)
+            log.info("✅ Text (TF-IDF+LR) models loaded.")
+        except Exception as e:
+            log.error(f"Text model load failed: {e}")
+            _registry["text"] = None
+    return _registry["text"]
+
+def get_bert_model():
+    if "bert" not in _registry:
+        if not TORCH_AVAILABLE:
+            _registry["bert"] = None
+        else:
+            try:
+                tokenizer = DistilBertTokenizerFast.from_pretrained(str(BERT_MODEL_DIR))
+                model     = DistilBertForSequenceClassification.from_pretrained(
+                    str(BERT_MODEL_DIR)
+                ).to(DEVICE)
+                model.eval()
+                _registry["bert"] = dict(tokenizer=tokenizer, model=model)
+                log.info(f"✅ DistilBERT loaded on {DEVICE}.")
+            except Exception as e:
+                log.error(f"DistilBERT load failed: {e}")
+                _registry["bert"] = None
+    return _registry["bert"]
+
+# =============================================================================
+#  URL FEATURE EXTRACTION  (mirrors training notebook exactly)
+# =============================================================================
+IP_RE       = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
+URL_RE_FIND = re.compile(r"https?://\S+|www\.\S+", re.I)
+
+SUSPICIOUS_TLD = {"tk","ml","ga","cf","gq","xyz","top","pw","click","link"}
+SUSPICIOUS_KW  = [
+    "login","signin","verify","update","secure","bank","account","password",
+    "confirm","webscr","ebayisapi","wp-admin","phish","free","lucky","bonus",
+    "paypal","appleid","support","service","checkout",
 ]
-_iso_forest = IsolationForest(
-    n_estimators=100, contamination=0.05, random_state=42
-)
-_iso_forest.fit(np.array(_safe_url_profiles, dtype=float))
-print("✅ Isolation Forest ready!")
 
-# ══════════════════════════════════════════════════════════════════
-#  IN-MEMORY STATS & HISTORY
-# ══════════════════════════════════════════════════════════════════
-stats = dict(total=0, phishing=0, suspicious=0, safe=0,
-             url_scans=0, text_scans=0)
-history = deque(maxlen=50)
+def _entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    probs = [s.count(c) / len(s) for c in set(s)]
+    return -sum(p * math.log2(p) for p in probs if p > 0)
 
-# ══════════════════════════════════════════════════════════════════
-#  FEATURE HELPERS  (exact V3 logic)
-# ══════════════════════════════════════════════════════════════════
-def calculate_entropy(s):
-    if not s: return 0.0
-    freq = {}
-    for c in s: freq[c] = freq.get(c, 0) + 1
-    n = len(s)
-    return round(-sum((v/n)*math.log2(v/n) for v in freq.values()), 4)
-
-def normalize_for_homoglyph(text):
-    return ''.join(HOMOGLYPHS.get(c, c) for c in text.lower())
-
-def get_brand_features(hostname, registered_domain, subdomain, url):
-    hostname_norm = normalize_for_homoglyph(hostname)
-    reg_norm      = normalize_for_homoglyph(registered_domain)
-    brand_in_subdomain = brand_not_in_reg = num_brands = 0
-
-    for brand in TOP_BRANDS:
-        in_host = brand in hostname_norm
-        in_reg  = brand in reg_norm
-        if in_host:
-            num_brands += 1
-            if subdomain and brand in normalize_for_homoglyph(subdomain) and not in_reg:
-                brand_in_subdomain = 1
-            if in_host and not in_reg:
-                brand_not_in_reg = 1
-
-    reg_clean = reg_norm.split('.')[0] if '.' in reg_norm else reg_norm
+def extract_url_features(url: str) -> dict:
+    url = str(url).strip()
     try:
-        import Levenshtein as lev
-        min_lev = min(
-            (lev.distance(reg_clean, brand) for brand in TOP_BRANDS
-             if abs(len(reg_clean)-len(brand)) <= 3),
-            default=99
-        )
-    except ImportError:
-        # fallback without Levenshtein library
-        min_lev = 0 if reg_clean in TOP_BRANDS else 99
+        parsed = urlparse(url if url.startswith("http") else "http://" + url)
+    except Exception:
+        parsed = urlparse("")
 
-    is_lookalike  = int(0 < min_lev <= 2 and len(reg_clean) >= 4)
-    has_digit_sub = int(any(c in registered_domain for c in '013456789'
-                            if c in HOMOGLYPHS))
-    path_has_brand = 0
-    if brand_not_in_reg:
-        path_has_brand = int(any(b in normalize_for_homoglyph(url) for b in TOP_BRANDS))
+    if TLD_AVAILABLE:
+        ext    = tldextract.extract(url)
+        domain = ext.domain
+        suffix = ext.suffix
+        sub    = ext.subdomain
+    else:
+        domain = parsed.netloc.split(".")[0] if parsed.netloc else ""
+        suffix = ".".join(parsed.netloc.split(".")[-2:]) if parsed.netloc else ""
+        sub    = ""
+
+    path  = parsed.path
+    query = parsed.query
+    full  = url
+
+    subdomains = [s for s in sub.split(".") if s] if sub else []
+    digits  = sum(c.isdigit() for c in full)
+    letters = sum(c.isalpha() for c in full)
+
+    kw_feats = {f"has_{kw}": int(kw in full.lower()) for kw in SUSPICIOUS_KW}
 
     return {
-        'brand_in_subdomain'  : brand_in_subdomain,
-        'brand_not_in_reg'    : brand_not_in_reg,
-        'num_brands_mentioned': min(num_brands, 5),
-        'is_lookalike_domain' : is_lookalike,
-        'min_brand_lev_dist'  : min(min_lev, 10),
-        'has_digit_sub'       : has_digit_sub,
-        'path_has_brand'      : path_has_brand,
+        "url_length":           len(full),
+        "num_dots":             full.count("."),
+        "num_hyphens":          full.count("-"),
+        "num_underscores":      full.count("_"),
+        "num_slashes":          full.count("/"),
+        "num_at":               full.count("@"),
+        "num_eq":               full.count("="),
+        "num_question":         full.count("?"),
+        "num_ampersand":        full.count("&"),
+        "num_percent":          full.count("%"),
+        "num_hash":             full.count("#"),
+        "has_https":            int(parsed.scheme == "https"),
+        "has_ip":               int(bool(IP_RE.search(full))),
+        "domain_length":        len(domain),
+        "path_length":          len(path),
+        "query_length":         len(query),
+        "path_segments":        len([p for p in path.split("/") if p]),
+        "num_params":           len(query.split("&")) if query else 0,
+        "num_subdomains":       len(subdomains),
+        "subdomain_length":     len(sub),
+        "digit_count":          digits,
+        "letter_count":         letters,
+        "digit_letter_ratio":   digits / (letters + 1e-6),
+        "url_entropy":          _entropy(full),
+        "domain_entropy":       _entropy(domain),
+        "is_suspicious_tld":    int(suffix.split(".")[-1].lower() in SUSPICIOUS_TLD),
+        "mock_domain_age_flag": int(len(domain) <= 4),
+        **kw_feats,
     }
 
-def extract_url_features(url):
-    """Extract all 34 V3 features."""
+def predict_url(url: str) -> dict:
+    """Run a single URL through XGBoost (+ LR fallback). Returns score dict."""
+    models = get_url_models()
+    if models is None:
+        return {"error": "URL models not loaded", "phishing_prob": 0.5}
+
+    feats = extract_url_features(url)
+    vec   = np.array([feats.get(c, 0) for c in models["cols"]],
+                     dtype=np.float32).reshape(1, -1)
+
+    # XGBoost
+    xgb_prob = float(models["xgb"].predict_proba(vec)[0][1]) if XGB_AVAILABLE else None
+
+    # LR (scaled)
+    vec_scaled = models["scaler"].transform(vec)
+    lr_prob    = float(models["lr"].predict_proba(vec_scaled)[0][1])
+
+    # Ensemble
+    prob = (xgb_prob * 0.65 + lr_prob * 0.35) if xgb_prob is not None else lr_prob
+
+    signals = []
+    if feats["has_ip"]:             signals.append("IP address used instead of domain")
+    if feats["is_suspicious_tld"]:  signals.append("Suspicious TLD detected")
+    if feats["num_at"] > 0:         signals.append("@ symbol in URL (credential bypass)")
+    if feats["num_subdomains"] > 2: signals.append("Excessive subdomains")
+    if not feats["has_https"]:      signals.append("No HTTPS")
+    for kw in SUSPICIOUS_KW:
+        if feats.get(f"has_{kw}"):
+            signals.append(f"Suspicious keyword: '{kw}'")
+            break
+
+    return {
+        "url":           url,
+        "xgb_prob":      round(xgb_prob, 4) if xgb_prob is not None else None,
+        "lr_prob":       round(lr_prob, 4),
+        "phishing_prob": round(prob, 4),
+        # Binary label using shared threshold
+        "prediction":    "phishing" if prob >= PHISHING_THRESHOLD else "legitimate",
+        "signals":       signals,
+    }
+
+# =============================================================================
+#  TEXT FEATURE EXTRACTION  (mirrors training notebook)
+# =============================================================================
+HTML_RE    = re.compile(r"<[^>]+>")
+URL_RE_SUB = re.compile(r"https?://\S+|www\.\S+", re.I)
+SPEC_RE    = re.compile(r"[^a-z\s]")
+
+URGENCY_KW    = ["urgent","immediately","act now","action required","asap",
+                 "limited time","expires","deadline","final notice","last chance",
+                 "hurry","today only","within 24","do not ignore"]
+FINANCIAL_KW  = ["bank","account","verify","credit card","debit","billing",
+                 "payment","paypal","transfer","ssn","social security","tax",
+                 "refund","invoice","wire","irs","subscription"]
+SUSPICIOUS_PH = ["click here","login now","confirm your","update your","verify your",
+                 "won a prize","free gift","you have been selected","claim now",
+                 "suspended","unusual activity","locked out","password expired",
+                 "security alert","reset your password"]
+
+def _clean_text(text: str) -> str:
+    text = HTML_RE.sub(" ", text)
+    text = URL_RE_SUB.sub(" urltoken ", text)
+    text = text.lower()
+    text = SPEC_RE.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def _nlp_process(text: str) -> str:
+    if not NLTK_AVAILABLE:
+        return text
+    tokens = word_tokenize(text)
+    tokens = [_lemmatizer.lemmatize(t) for t in tokens
+              if t not in _stop_words and len(t) > 1]
+    return " ".join(tokens)
+
+def full_preprocess(text: str) -> str:
+    return _nlp_process(_clean_text(text))
+
+def extract_text_signals(text: str) -> dict:
+    t     = text.lower()
+    alpha = [c for c in text if c.isalpha()]
+    caps  = sum(1 for c in alpha if c.isupper()) / max(len(alpha), 1)
+    return {
+        "has_urgency":       int(any(w in t for w in URGENCY_KW)),
+        "has_financial":     int(any(w in t for w in FINANCIAL_KW)),
+        "has_suspicious":    int(any(p in t for p in SUSPICIOUS_PH)),
+        "has_url":           int(bool(URL_RE_SUB.search(text))),
+        "exclamation_count": text.count("!"),
+        "caps_ratio":        round(caps, 4),
+        "text_length":       len(text),
+        "word_count":        len(text.split()),
+    }
+
+def predict_text_lr(text: str) -> dict:
+    """TF-IDF + LR prediction on body text."""
+    models = get_text_models()
+    if models is None:
+        return {"error": "Text models not loaded", "phishing_prob": 0.5}
+
+    proc     = full_preprocess(text)
+    tfidf_v  = models["tfidf"].transform([proc])
+    sigs     = extract_text_signals(text)
+    sig_v    = csr_matrix(np.array([[sigs[c] for c in models["signal_cols"]]],
+                                    dtype=np.float32))
+    combined = hstack([tfidf_v, sig_v])
+    prob     = float(models["lr"].predict_proba(combined)[0][1])
+
+    signals = []
+    if sigs["has_urgency"]:           signals.append("Urgency language detected")
+    if sigs["has_financial"]:         signals.append("Financial keywords present")
+    if sigs["has_suspicious"]:        signals.append("Suspicious phrases found")
+    if sigs["has_url"]:               signals.append("URL(s) embedded in text body")
+    if sigs["caps_ratio"] > 0.3:      signals.append(f"High CAPS ratio ({sigs['caps_ratio']:.0%})")
+    if sigs["exclamation_count"] > 1: signals.append(f"{sigs['exclamation_count']} exclamation marks")
+
+    return {
+        "phishing_prob":   round(prob, 4),
+        # Binary label using shared threshold
+        "prediction":      "phishing" if prob >= PHISHING_THRESHOLD else "legitimate",
+        "signals":         signals,
+        "signal_features": sigs,
+    }
+
+def predict_text_bert(text: str) -> dict:
+    """DistilBERT prediction on body text."""
+    bert = get_bert_model()
+    if bert is None:
+        return {"phishing_prob": None, "prediction": "unavailable", "signals": []}
+
+    enc = bert["tokenizer"](
+        text, truncation=True, padding="max_length",
+        max_length=128, return_tensors="pt"
+    )
+    with torch.no_grad():
+        out  = bert["model"](
+            input_ids      = enc["input_ids"].to(DEVICE),
+            attention_mask = enc["attention_mask"].to(DEVICE),
+        )
+        prob = float(torch.softmax(out.logits, dim=1)[0][1].cpu())
+
+    return {
+        "phishing_prob": round(prob, 4),
+        # Binary label using shared threshold
+        "prediction":    "phishing" if prob >= PHISHING_THRESHOLD else "legitimate",
+        "signals":       [],
+    }
+
+# =============================================================================
+#  EMAIL PARSER  — extract URLs, body text, attachment text
+# =============================================================================
+def extract_urls_from_text(text: str) -> list[str]:
+    return list(set(URL_RE_FIND.findall(text)))
+
+def read_attachment_text(file_bytes: bytes, filename: str) -> str:
+    """Extract readable text from common attachment types."""
+    ext = Path(filename).suffix.lower()
     try:
-        import tldextract
-        url_raw = str(url).strip()
-        url_low = url_raw.lower()
-        ext = tldextract.extract(url_low)
-        registered_domain = f'{ext.domain}.{ext.suffix}' if ext.suffix else ext.domain
-        subdomain = ext.subdomain
-        hostname  = f'{ext.subdomain}.{ext.domain}.{ext.suffix}'.strip('.')
-        tld       = ext.suffix.lower() if ext.suffix else ''
+        if ext in (".txt", ".eml", ".msg", ".html", ".htm"):
+            return file_bytes.decode("utf-8", errors="ignore")
+        if ext == ".pdf":
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                return " ".join(p.extract_text() or "" for p in reader.pages)
+            except Exception:
+                return ""
     except Exception:
-        url_low = str(url).strip().lower()
-        registered_domain = subdomain = hostname = ''
-        tld = ''
+        pass
+    return ""
 
-    is_trusted = int(registered_domain in TRUSTED_DOMAINS)
-    url_no_proto = re.sub(r'^https?://', '', url_low)
+def parse_email(subject: str, body: str, attachments: list[dict]) -> dict:
+    """
+    Decompose an email into:
+      - all_text    : subject + body (for text model)
+      - urls        : every URL found across subject, body, attachments
+      - attach_texts: readable text extracted from attachments
+    """
+    combined_text = f"{subject}\n{body}"
+    urls          = extract_urls_from_text(combined_text)
 
-    try:
-        path_part  = '/' + '/'.join(url_no_proto.split('/')[1:])
-        query_part = url_low.split('?')[1] if '?' in url_low else ''
-    except:
-        path_part = query_part = ''
+    attach_texts = []
+    for att in attachments:
+        att_text = read_attachment_text(att["bytes"], att["name"])
+        if att_text.strip():
+            attach_texts.append({"name": att["name"], "text": att_text})
+            urls += extract_urls_from_text(att_text)
 
-    ip_pat  = re.compile(
-        r'(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)')
-    digits  = sum(c.isdigit() for c in url_low)
-    letters = sum(c.isalpha() for c in url_low)
-    d2l     = round(digits / (letters + 1e-5), 4)
-    num_sub = max(0, url_low.count('.') - 1)
+    return {
+        "body_text":    body,
+        "subject":      subject,
+        "all_text":     combined_text,
+        "urls":         list(set(urls)),
+        "attach_texts": attach_texts,
+    }
 
-    path_kw_hits = sum(kw in path_part for kw in SUSPICIOUS_KW)
-    path_kw_dens = round(path_kw_hits / (len(path_part.split('/')) + 1e-5), 4)
+# =============================================================================
+#  RISK ENGINE
+# =============================================================================
+W_URL        = 0.40
+W_TEXT_LR    = 0.30
+W_TEXT_BERT  = 0.25
+W_ATTACHMENT = 0.05
 
-    try:
-        import tldextract as _tld
-        _e = _tld.extract(url_low)
-        reg_entropy = calculate_entropy(_e.domain)
-        reg_length  = len(_e.domain)
-    except:
-        reg_entropy = calculate_entropy(registered_domain.split('.')[0])
-        reg_length  = len(registered_domain.split('.')[0])
+def run_risk_engine(
+    url_results:    list[dict],
+    lr_result:      Optional[dict],
+    bert_result:    Optional[dict],
+    attach_results: list[dict],
+) -> dict:
+    components = {}
 
-    brand_feats = get_brand_features(hostname, registered_domain, subdomain, url_low)
+    # URL component — worst URL wins
+    url_probs = [r["phishing_prob"] for r in url_results if "phishing_prob" in r]
+    url_score = max(url_probs) if url_probs else 0.0
+    components["url"] = round(url_score, 4)
 
-    base = {
-        'url_length'               : len(url_low),
-        'num_dots'                 : url_low.count('.'),
-        'num_hyphens'              : url_low.count('-'),
-        'num_digits'               : digits,
-        'has_https'                : int(url_low.startswith('https')),
-        'has_ip_address'           : int(bool(ip_pat.search(url_low))),
-        'suspicious_keywords'      : sum(kw in url_low for kw in SUSPICIOUS_KW),
-        'num_subdomains'           : num_sub,
-        'path_length'              : len(path_part),
-        'entropy'                  : calculate_entropy(url_low),
-        'has_at_symbol'            : int('@' in url_low),
-        'url_depth'                : url_low.count('/'),
-        'query_length'             : len(query_part),
-        'num_special_chars'        : sum(url_low.count(c) for c in ['=','&','%','~','+']),
-        'suspicious_tld'           : int(tld in SUSPICIOUS_TLD),
-        'digit_letter_ratio'       : d2l,
-        'has_double_slash'         : int('//' in url_no_proto),
-        'has_port'                 : int(bool(re.search(r':\d{2,5}/', url_low))),
-        'has_fragment'             : int('#' in url_low),
-        'has_hex_encoding'         : int('%' in url_low),
-        'has_punycode'             : int('xn--' in url_low),
-        'excessive_subdomains'     : int(num_sub > 3),
-        'is_trusted_domain'        : is_trusted,
-        'registered_domain_entropy': reg_entropy,
-        'registered_domain_len'    : reg_length,
-        'path_keyword_density'     : path_kw_dens,
-        'tld_mismatch'             : int(
-            any(b in hostname for b in TOP_BRANDS) and
-            tld not in ['com','org','net','edu','gov'] and
-            not is_trusted
+    # Text LR component
+    lr_score = lr_result["phishing_prob"] if (lr_result and "phishing_prob" in lr_result) else 0.0
+    components["text_lr"] = round(lr_score, 4)
+
+    # Text BERT component
+    bert_available = bert_result and bert_result.get("phishing_prob") is not None
+    bert_score     = bert_result["phishing_prob"] if bert_available else None
+    components["text_bert"] = round(bert_score, 4) if bert_score is not None else None
+
+    # Attachment component
+    att_scores = [r["phishing_prob"] for r in attach_results if "phishing_prob" in r]
+    att_score  = max(att_scores) if att_scores else 0.0
+    components["attachment"] = round(att_score, 4)
+
+    # Weighted sum
+    if bert_available:
+        final = (
+            W_URL        * url_score  +
+            W_TEXT_LR    * lr_score   +
+            W_TEXT_BERT  * bert_score +
+            W_ATTACHMENT * att_score
+        )
+    else:
+        # Redistribute BERT weight evenly to URL and LR
+        w_url_adj = W_URL      + W_TEXT_BERT * 0.5
+        w_lr_adj  = W_TEXT_LR  + W_TEXT_BERT * 0.5
+        final = (
+            w_url_adj    * url_score +
+            w_lr_adj     * lr_score  +
+            W_ATTACHMENT * att_score
+        )
+
+    # Boost when multiple sources agree strongly
+    high_signals = sum([
+        url_score        > 0.7,
+        lr_score         > 0.7,
+        (bert_score or 0) > 0.7,
+        att_score        > 0.7,
+    ])
+    if high_signals >= 2:
+        final = min(final * 1.15, 1.0)
+
+    tier = risk_tier(final)
+
+    # Collect all signals
+    all_signals = []
+    for r in url_results:
+        all_signals += [f"[URL] {s}" for s in r.get("signals", [])]
+    if lr_result:
+        all_signals += [f"[TEXT] {s}" for s in lr_result.get("signals", [])]
+
+    return {
+        "risk_score":     round(final, 4),
+        "risk_tier":      tier["label"],
+        "risk_color":     tier["color"],
+        "components":     components,
+        "all_signals":    list(dict.fromkeys(all_signals)),  # preserve order + dedup
+        "bert_available": bert_available,
+    }
+
+# =============================================================================
+#  CAMPAIGN DETECTION  — rolling in-memory fingerprint store
+# =============================================================================
+_CAMPAIGN_HASHES: deque = deque(maxlen=500)
+
+def _hash_email(text: str) -> str:
+    """SHA-256 of the first 500 characters of email text."""
+    return hashlib.sha256(text[:500].encode("utf-8", errors="ignore")).hexdigest()
+
+def detect_campaign(text: str) -> bool:
+    """Returns True if this fingerprint was seen before; always records it."""
+    h    = _hash_email(text)
+    seen = h in _CAMPAIGN_HASHES
+    _CAMPAIGN_HASHES.append(h)
+    return seen
+
+# =============================================================================
+#  RESPONSE HELPERS
+# =============================================================================
+
+def classify_attack_type(
+    url_score: float,
+    text_score: float,
+    attachment_score: float,
+) -> str:
+    """
+    Classifies dominant attack vector (most severe first):
+      multi-stage          → URL  high AND text high
+      malicious-link       → URL  high
+      phishing-content     → text high
+      malicious-attachment → attachment high
+      safe                 → nothing crosses threshold
+    """
+    if url_score > 0.7 and text_score > 0.7:
+        return "multi-stage"
+    if url_score > 0.7:
+        return "malicious-link"
+    if text_score > 0.7:
+        return "phishing-content"
+    if attachment_score > 0.7:
+        return "malicious-attachment"
+    return "safe"
+
+
+def generate_attack_story(
+    url_score: float,
+    text_score: float,
+    bert_score: Optional[float],
+    attack_type: str,
+    signals: list[str],
+) -> str:
+    """Human-readable paragraph explaining what the analysis found."""
+    leads = {
+        "multi-stage": (
+            "This email shows hallmarks of a coordinated multi-stage phishing "
+            "attack: both the embedded links and the message body carry strong "
+            "deceptive signals."
+        ),
+        "malicious-link": (
+            "The primary threat originates from one or more embedded URLs "
+            "that exhibit high phishing confidence."
+        ),
+        "phishing-content": (
+            "The body text contains language patterns strongly associated "
+            "with social-engineering and phishing campaigns."
+        ),
+        "malicious-attachment": (
+            "A suspicious attachment was detected that may carry malicious "
+            "content or links designed to compromise the recipient."
+        ),
+        "safe": (
+            "No significant phishing indicators were detected in this email."
         ),
     }
-    base.update(brand_feats)
-    return base
 
-def preprocess_text(txt):
-    txt = str(txt).lower()
-    txt = txt.translate(str.maketrans('', '', string.punctuation))
-    return re.sub(r'\s+', ' ', txt).strip()
+    parts = [leads.get(attack_type, leads["safe"])]
 
-def has_transactional_context(txt):
-    txt_low = str(txt).lower()
-    return int(any(kw in txt_low for kw in TRANSACTIONAL_KW))
+    if url_score > 0.0:
+        level = "high-risk" if url_score >= PHISHING_THRESHOLD else "low-risk"
+        parts.append(
+            f"URL analysis returned a phishing probability of "
+            f"{url_score:.0%} ({level})."
+        )
 
-def has_urgency_context(txt):
-    txt_low = str(txt).lower()
-    return int(any(kw in txt_low for kw in URGENCY_KW))
+    if text_score > 0.0:
+        bert_note = (
+            f", corroborated by the neural model at {bert_score:.0%}"
+            if bert_score is not None else ""
+        )
+        parts.append(
+            f"The text classifier scored the body at "
+            f"{text_score:.0%}{bert_note}."
+        )
 
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 1: URL ML MODEL
-# ══════════════════════════════════════════════════════════════════
-def stage1_url_ml(url: str) -> tuple:
-    """Returns (p_url, features_dict, raw_feature_values_for_iso)"""
-    feats   = extract_url_features(url)
-    feat_df = pd.DataFrame([feats])
-    scaled  = url_scaler.transform(feat_df)
-    p_url   = float(url_model.predict_proba(scaled)[0][1])
+    clean_sigs = [s.split("] ", 1)[-1] for s in signals if s.strip()]
+    if clean_sigs:
+        parts.append("Key indicators: " + "; ".join(clean_sigs[:3]) + ".")
 
-    # 15-dim vector for Isolation Forest
-    iso_vec = [
-        feats['url_length'], feats['num_dots'], feats['num_hyphens'],
-        feats['num_digits'], feats['has_https'], feats['has_ip_address'],
-        feats['suspicious_keywords'], feats['num_subdomains'],
-        feats['path_length'], feats['entropy'], feats['has_at_symbol'],
-        feats['url_depth'], feats['query_length'], feats['num_special_chars'],
-        feats['suspicious_tld']
-    ]
-    return p_url, feats, iso_vec
+    return " ".join(parts)
 
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 2: TEXT ML MODEL + TRANSACTIONAL FIX
-# ══════════════════════════════════════════════════════════════════
-def stage2_text_ml(text: str) -> tuple:
-    """Returns (p_text, is_transactional, has_urgency)"""
-    if not text or not text.strip():
-        return None, False, False
 
-    clean      = preprocess_text(text)
-    vec        = tfidf.transform([clean])
-    p_text_raw = float(text_model.predict_proba(vec)[0][1])
-    is_txn     = bool(has_transactional_context(text))
-    is_urgent  = bool(has_urgency_context(text))
+def generate_impact(signals: list[str]) -> str:
+    """Maps signal keywords to a business-impact statement."""
+    combined = " ".join(signals).lower()
 
-    # ── Transactional override ──────────────────────────────────────
-    # If clearly transactional AND no urgency signals → reduce score
-    if is_txn and not is_urgent:
-        p_text = max(0.0, p_text_raw - 0.30)
-    # If transactional but also has urgency (phishing mimics transactions)
-    elif is_txn and is_urgent:
-        p_text = p_text_raw  # trust the model
-    else:
-        p_text = p_text_raw
+    financial_triggers  = ["financial","bank","credit card","billing","payment",
+                           "paypal","transfer","ssn","tax","refund","invoice"]
+    credential_triggers = ["login","password","credential","signin","verify your",
+                           "reset your password","account","confirm your"]
 
-    return p_text, is_txn, is_urgent
+    if any(t in combined for t in financial_triggers):
+        return "Financial fraud risk detected"
+    if any(t in combined for t in credential_triggers):
+        return "Credential theft attempt likely"
+    return "Potential phishing attempt"
 
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 3: RULE-BASED ENGINE
-# ══════════════════════════════════════════════════════════════════
-def stage3_rule_engine(url: str, feats: dict) -> tuple:
-    """Returns (p_rule, triggered_rules)"""
-    score   = 0.0
-    rules   = []
-    url_low = url.lower()
 
-    # IP address in URL → very suspicious
-    if feats.get('has_ip_address'):
-        score += 0.35; rules.append("IP address used instead of domain")
+def select_top_signals(all_signals: list[str], n: int = 3) -> list[str]:
+    """
+    Returns top-n signals ordered by priority [URL] > [TEXT] > other.
+    Strips the category prefix before returning.
+    """
+    url_sigs  = [s for s in all_signals if s.startswith("[URL]")]
+    text_sigs = [s for s in all_signals if s.startswith("[TEXT]")]
+    other     = [s for s in all_signals if not s.startswith(("[URL]", "[TEXT]"))]
 
-    # Suspicious TLD
-    if feats.get('suspicious_tld'):
-        score += 0.20; rules.append("Suspicious TLD detected (.tk/.xyz/.top etc.)")
+    ordered = (url_sigs + text_sigs + other)[:n]
+    return [s.split("] ", 1)[-1] if "] " in s else s for s in ordered]
 
-    # Brand impersonation (brand in subdomain, not registered domain)
-    if feats.get('brand_in_subdomain'):
-        score += 0.30; rules.append("Brand name in subdomain — likely impersonation")
 
-    # Brand keyword not in registered domain
-    if feats.get('brand_not_in_reg'):
-        score += 0.25; rules.append("Brand keyword not owned by registered domain")
+def build_final_response(
+    risk:           dict,
+    url_results:    list[dict],
+    lr_result:      Optional[dict],
+    bert_result:    Optional[dict],
+    attach_results: list[dict],
+    parsed:         dict,
+    subject:        str,
+) -> dict:
+    """
+    Assembles the standardised, frontend-ready JSON response for the
+    Gmail add-on.  All raw technical data is preserved under
+    'technical_details' for debugging / advanced views.
+    """
+    components       = risk.get("components", {})
+    url_score        = components.get("url",        0.0)
+    text_lr_score    = components.get("text_lr",    0.0)
+    bert_score_raw   = components.get("text_bert")          # may be None
+    attachment_score = components.get("attachment", 0.0)
 
-    # Lookalike domain (Levenshtein ≤ 2)
-    if feats.get('is_lookalike_domain'):
-        score += 0.25; rules.append(f"Lookalike domain (edit distance={feats.get('min_brand_lev_dist')} from known brand)")
-
-    # High entropy (randomness in URL)
-    if feats.get('entropy', 0) > 4.2:
-        score += 0.15; rules.append(f"High URL entropy ({feats['entropy']:.2f}) — likely generated")
-
-    # Too many subdomains
-    if feats.get('excessive_subdomains'):
-        score += 0.10; rules.append("Excessive subdomains (>3)")
-
-    # Login keyword without HTTPS
-    if 'login' in url_low and not feats.get('has_https'):
-        score += 0.20; rules.append("Login page without HTTPS")
-
-    # @ symbol in URL (classic trick)
-    if feats.get('has_at_symbol'):
-        score += 0.25; rules.append("@ symbol in URL (browser ignores everything before @)")
-
-    # Punycode / homoglyph
-    if feats.get('has_punycode') or feats.get('has_digit_sub'):
-        score += 0.20; rules.append("Punycode or digit-substitution in domain")
-
-    # Multiple suspicious keywords in URL
-    kw_count = feats.get('suspicious_keywords', 0)
-    if kw_count >= 2:
-        score += 0.15; rules.append(f"{kw_count} suspicious keywords in URL")
-    elif kw_count == 1:
-        score += 0.07
-
-    # TLD mismatch (brand name + non-standard TLD)
-    if feats.get('tld_mismatch'):
-        score += 0.20; rules.append("Brand name present but TLD is non-standard")
-
-    # High path keyword density
-    if feats.get('path_keyword_density', 0) > 0.4:
-        score += 0.10; rules.append("High density of phishing keywords in URL path")
-
-    # Very long URL
-    if feats.get('url_length', 0) > 100:
-        score += 0.08; rules.append(f"Unusually long URL ({feats['url_length']} chars)")
-
-    # Normalize to [0, 1]
-    p_rule = min(score / 1.5, 1.0)
-    return round(p_rule, 4), rules
-
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 4: REPUTATION LAYER
-# ══════════════════════════════════════════════════════════════════
-def stage4_reputation(url: str, feats: dict) -> tuple:
-    """Returns (p_rep, force_safe, force_phishing, rep_reason)"""
-    try:
-        import tldextract
-        ext = tldextract.extract(url.lower())
-        registered_domain = f'{ext.domain}.{ext.suffix}' if ext.suffix else ext.domain
-    except:
-        registered_domain = ''
-
-    # Whitelist check
-    if feats.get('is_trusted_domain') and not feats.get('brand_not_in_reg'):
-        return 0.0, True, False, f"Trusted domain: {registered_domain}"
-
-    # Blacklist check
-    if registered_domain in BLACKLISTED_DOMAINS or \
-       any(b in url.lower() for b in BLACKLISTED_DOMAINS):
-        return 1.0, False, True, "Known malicious domain"
-
-    # Domain looks very clean (trusted TLD + no suspicious signals)
-    if feats.get('has_https') and \
-       not feats.get('suspicious_tld') and \
-       not feats.get('has_ip_address') and \
-       feats.get('suspicious_keywords', 0) == 0:
-        return 0.1, False, False, "Clean domain profile"
-
-    return 0.5, False, False, "Neutral reputation"
-
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 5: ANOMALY DETECTION
-# ══════════════════════════════════════════════════════════════════
-def stage5_anomaly(iso_vec: list) -> tuple:
-    """Returns (anomaly_flag, anomaly_score)"""
-    X = np.array([iso_vec], dtype=float)
-    pred  = _iso_forest.predict(X)[0]       # -1 = anomaly, 1 = normal
-    score = float(_iso_forest.score_samples(X)[0])
-    # score_samples returns negative values; more negative = more anomalous
-    anomaly_flag  = int(pred == -1)
-    # Normalize: typical range is [-0.7, 0.1], map to [0,1] risk
-    anomaly_risk  = round(max(0.0, min(1.0, (-score - 0.1) / 0.6)), 4)
-    return anomaly_flag, anomaly_risk
-
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 6: ENSEMBLE DECISION ENGINE
-# ══════════════════════════════════════════════════════════════════
-def stage6_ensemble(p_url, p_text, p_rule, p_rep,
-                    anomaly_flag, has_text,
-                    force_safe, force_phishing) -> tuple:
-    """Returns (final_score, weight_breakdown)"""
-
-    # ── Hard overrides ───────────────────────────────────────────
-    if force_safe:
-        return 0.02, {"override": "whitelist_safe"}
-    if force_phishing:
-        return 0.98, {"override": "blacklist_phishing"}
-
-    # ── Dynamic weights depending on text availability ───────────
-    if has_text:
-        w_url  = 0.45
-        w_text = 0.25
-        w_rule = 0.20
-        w_rep  = 0.10
-    else:
-        w_url  = 0.55
-        w_text = 0.00
-        w_rule = 0.30
-        w_rep  = 0.15
-
-    p_text_val = p_text if has_text else 0.0
-
-    final = (w_url  * p_url  +
-             w_text * p_text_val +
-             w_rule * p_rule +
-             w_rep  * p_rep)
-
-    # ── Anomaly boost ────────────────────────────────────────────
-    if anomaly_flag and final < 0.75:
-        final = max(final, 0.65)
-
-    final = round(min(max(final, 0.0), 1.0), 4)
-    weights = {
-        "url_model"   : round(w_url * p_url, 4),
-        "text_model"  : round(w_text * p_text_val, 4),
-        "rule_engine" : round(w_rule * p_rule, 4),
-        "reputation"  : round(w_rep * p_rep, 4),
-    }
-    return final, weights
-
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 7: CONFIDENCE & UNCERTAINTY
-# ══════════════════════════════════════════════════════════════════
-def stage7_confidence(final_score: float) -> tuple:
-    """Returns (confidence_pct, confidence_label, is_uncertain)"""
-    distance    = abs(final_score - 0.5)
-    confidence  = round(distance * 200, 1)   # 0-100%
-    is_uncertain = distance < 0.15
-
-    if confidence >= 75:
-        label = "High"
-    elif confidence >= 40:
-        label = "Medium"
-    else:
-        label = "Low"
-
-    return confidence, label, is_uncertain
-
-# ══════════════════════════════════════════════════════════════════
-#  STAGE 8: FINAL CLASSIFICATION
-# ══════════════════════════════════════════════════════════════════
-def stage8_classify(final_score: float, is_uncertain: bool) -> str:
-    if is_uncertain:
-        return "Suspicious"
-    if final_score < 0.25:
-        return "Safe"
-    elif final_score <= 0.75:
-        return "Suspicious"
-    else:
-        return "Phishing"
-
-# ══════════════════════════════════════════════════════════════════
-#  MASTER PIPELINE
-# ══════════════════════════════════════════════════════════════════
-def run_pipeline(url: str, text: str = "") -> dict:
-    url      = (url or "").strip()
-    text     = (text or "").strip()
-    has_text = len(text) > 3
-
-    if not url:
-        return {"error": "No URL provided"}
-
-    reasons  = []
-    signals  = {}
-
-    # ── Stage 1: URL ML ──────────────────────────────────────────
-    p_url, feats, iso_vec = stage1_url_ml(url)
-    signals["url_model"] = round(p_url, 4)
-
-    # ── Stage 2: Text ML ─────────────────────────────────────────
-    p_text = None
-    is_txn = is_urgent = False
-    if has_text:
-        p_text, is_txn, is_urgent = stage2_text_ml(text)
-        signals["text_model"] = round(p_text, 4)
-        if is_txn and not is_urgent:
-            reasons.append("Transactional context detected — score reduced")
-        if is_urgent:
-            reasons.append("Urgency language detected in message")
-    else:
-        signals["text_model"] = None
-
-    # ── Stage 3: Rule Engine ─────────────────────────────────────
-    p_rule, rule_reasons = stage3_rule_engine(url, feats)
-    signals["rule_engine"] = p_rule
-    reasons.extend(rule_reasons[:5])   # top 5 rule triggers
-
-    # ── Stage 4: Reputation ──────────────────────────────────────
-    p_rep, force_safe, force_phishing, rep_reason = stage4_reputation(url, feats)
-    signals["reputation"] = p_rep
-    if force_safe or force_phishing:
-        reasons.insert(0, rep_reason)
-
-    # ── Stage 5: Anomaly Detection ───────────────────────────────
-    anomaly_flag, anomaly_risk = stage5_anomaly(iso_vec)
-    signals["anomaly_risk"] = anomaly_risk
-    if anomaly_flag:
-        reasons.append(f"URL structure anomaly detected (risk={anomaly_risk:.2f})")
-
-    # ── Stage 6: Ensemble ────────────────────────────────────────
-    final_score, weights = stage6_ensemble(
-        p_url, p_text if has_text else 0.5,
-        p_rule, p_rep,
-        anomaly_flag, has_text,
-        force_safe, force_phishing
+    # Use the higher of LR / BERT as representative text score
+    text_score = max(
+        text_lr_score,
+        bert_score_raw if bert_score_raw is not None else 0.0,
     )
 
-    # ── Stage 7: Confidence ──────────────────────────────────────
-    conf_pct, conf_label, is_uncertain = stage7_confidence(final_score)
-    if is_uncertain:
-        reasons.append("Low confidence — borderline case, treat with caution")
+    all_signals  = risk.get("all_signals", [])
+    attack_type  = classify_attack_type(url_score, text_score, attachment_score)
+    attack_story = generate_attack_story(
+        url_score, text_lr_score, bert_score_raw, attack_type, all_signals
+    )
+    impact      = generate_impact(all_signals)
+    top_signals = select_top_signals(all_signals, n=3)
 
-    # ── Stage 8: Classification ──────────────────────────────────
-    label = stage8_classify(final_score, is_uncertain)
-
-    # ── Dominant stage ───────────────────────────────────────────
-    if force_safe or force_phishing:
-        dominant = "Reputation Layer"
-    elif p_rule > 0.6 and p_rule > p_url:
-        dominant = "Rule Engine"
-    elif anomaly_flag:
-        dominant = "Anomaly Detection"
-    else:
-        dominant = "URL ML Model"
+    # Campaign detection — fingerprint on subject + first 500 chars of body
+    fingerprint_text  = subject + "\n" + parsed.get("body_text", "")
+    campaign_detected = detect_campaign(fingerprint_text)
 
     return {
-        "url"           : url[:120],
-        "probability"   : final_score,
-        "label"         : label,
-        "confidence"    : conf_label,
-        "confidence_pct": conf_pct,
-        "signals"       : {
-            "url_model"  : round(p_url * 100, 1),
-            "text_model" : round((p_text or 0) * 100, 1) if has_text else None,
-            "rule_engine": round(p_rule * 100, 1),
-            "reputation" : round(p_rep * 100, 1),
-            "anomaly"    : round(anomaly_risk * 100, 1),
+        # ── Top-level verdict ──────────────────────────────────────────────────
+        "risk_score": risk["risk_score"],
+        "risk_tier":  risk["risk_tier"],          # "PHISHING" | "SAFE"
+
+        # ── Attack classification ──────────────────────────────────────────────
+        "attack_type":  attack_type,
+        "attack_story": attack_story,
+
+        # ── Per-component breakdown ────────────────────────────────────────────
+        "risk_breakdown": {
+            "url":        url_score,
+            "text":       round(text_score, 4),
+            "attachment": attachment_score,
         },
-        "reasons"       : reasons[:6] if reasons else ["No strong indicators detected"],
-        "dominant_stage": dominant,
-        "is_transactional": is_txn,
-        "anomaly_flag"  : bool(anomaly_flag),
-        "weights_used"  : weights,
-        "features"      : {
-            # ── Trust & Reputation ──────────────────────────────
-            "is_trusted_domain"     : bool(feats.get('is_trusted_domain')),
-            "has_https"             : bool(feats.get('has_https')),
-            "suspicious_tld"        : bool(feats.get('suspicious_tld')),
-            "has_ip_address"        : bool(feats.get('has_ip_address')),
 
-            # ── Brand Impersonation ─────────────────────────────
-            "brand_in_subdomain"    : bool(feats.get('brand_in_subdomain')),
-            "brand_not_in_reg"      : bool(feats.get('brand_not_in_reg')),
-            "is_lookalike_domain"   : bool(feats.get('is_lookalike_domain')),
-            "min_brand_lev_dist"    : int(feats.get('min_brand_lev_dist', 99)),
-            "num_brands_mentioned"  : int(feats.get('num_brands_mentioned', 0)),
-            "has_digit_sub"         : bool(feats.get('has_digit_sub')),
-            "has_punycode"          : bool(feats.get('has_punycode')),
-            "tld_mismatch"          : bool(feats.get('tld_mismatch')),
-            "path_has_brand"        : bool(feats.get('path_has_brand')),
+        # ── Human-readable signals (top 3) ────────────────────────────────────
+        "top_signals": top_signals,
 
-            # ── URL Structure ───────────────────────────────────
-            "url_length"            : int(feats.get('url_length', 0)),
-            "num_dots"              : int(feats.get('num_dots', 0)),
-            "num_hyphens"           : int(feats.get('num_hyphens', 0)),
-            "num_subdomains"        : int(feats.get('num_subdomains', 0)),
-            "excessive_subdomains"  : bool(feats.get('excessive_subdomains')),
-            "url_depth"             : int(feats.get('url_depth', 0)),
-            "path_length"           : int(feats.get('path_length', 0)),
-            "has_at_symbol"         : bool(feats.get('has_at_symbol')),
-            "has_double_slash"      : bool(feats.get('has_double_slash')),
-            "has_port"              : bool(feats.get('has_port')),
-            "has_fragment"          : bool(feats.get('has_fragment')),
-            "has_hex_encoding"      : bool(feats.get('has_hex_encoding')),
+        # ── Impact assessment ─────────────────────────────────────────────────
+        "impact": impact,
 
-            # ── Content & Entropy ───────────────────────────────
-            "entropy"               : round(float(feats.get('entropy', 0)), 4),
-            "registered_domain_entropy": round(float(feats.get('registered_domain_entropy', 0)), 4),
-            "registered_domain_len" : int(feats.get('registered_domain_len', 0)),
-            "suspicious_keywords"   : int(feats.get('suspicious_keywords', 0)),
-            "path_keyword_density"  : round(float(feats.get('path_keyword_density', 0)), 4),
-            "num_digits"            : int(feats.get('num_digits', 0)),
-            "digit_letter_ratio"    : round(float(feats.get('digit_letter_ratio', 0)), 4),
-            "num_special_chars"     : int(feats.get('num_special_chars', 0)),
-            "query_length"          : int(feats.get('query_length', 0)),
-        }
+        # ── Campaign / repeat-sender detection ────────────────────────────────
+        "campaign_detected": campaign_detected,
+
+        # ── Raw technical details (for debugging / advanced frontend views) ────
+        "technical_details": {
+            "urls_found":         parsed.get("urls", []),
+            "url_results":        url_results,
+            "text_lr":            lr_result,
+            "text_bert":          bert_result,
+            "attachment_results": attach_results,
+        },
     }
 
-# ══════════════════════════════════════════════════════════════════
-#  FLASK ROUTES
-# ══════════════════════════════════════════════════════════════════
-@app.route("/")
-def index():
-    return send_from_directory("static", "index.html")
+# =============================================================================
+#  FLASK APP
+# =============================================================================
+app = Flask(__name__)
+CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
-@app.route("/about")
-def about():
-    return send_from_directory("static", "about.html")
 
-@app.route("/stats")
-def get_stats():
-    return jsonify({**stats, "history": list(history)})
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status":      "ok",
+        "url_models":  get_url_models()  is not None,
+        "text_models": get_text_models() is not None,
+        "bert_model":  get_bert_model()  is not None,
+        "device":      DEVICE,
+        "threshold":   PHISHING_THRESHOLD,
+    })
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    data = request.get_json()
-    url  = (data.get("url") or "").strip()
-    text = (data.get("text") or "").strip()
+
+@app.route("/predict/url", methods=["POST"])
+def predict_url_endpoint():
+    """
+    Input  (JSON): { "url": "https://..." }
+    Output (JSON): URL phishing analysis + binary risk tier
+    """
+    data = request.get_json(silent=True) or {}
+    url  = data.get("url", "").strip()
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    result = run_pipeline(url, text)
-    if "error" in result:
-        return jsonify(result), 400
+    result = predict_url(url)
+    tier   = risk_tier(result["phishing_prob"])
+    result["risk_tier"]  = tier["label"]
+    result["risk_color"] = tier["color"]
+    return jsonify(result)
 
-    # ── Update stats ─────────────────────────────────────────────
-    label = result["label"].lower()
-    stats["total"]    += 1
-    stats[label]      += 1
-    if text: stats["text_scans"] += 1
-    else:    stats["url_scans"]  += 1
 
-    history.appendleft({
-        "url"       : url[:70],
-        "label"     : result["label"],
-        "prob"      : result["probability"],
-        "conf"      : result["confidence"],
-        "time"      : datetime.now().strftime("%H:%M:%S"),
-        "has_text"  : bool(text),
-    })
+@app.route("/predict/email", methods=["POST"])
+def predict_email_endpoint():
+    """
+    Input  (multipart/form-data):
+      - subject        : str  (optional)
+      - body           : str
+      - attachments[]  : files (optional, multiple)
 
-    prediction = result["label"].lower()   # "safe" | "suspicious" | "phishing"
-    confidence = result["confidence_pct"]  # numeric 0-100
+    Output (JSON): standardised frontend-ready phishing analysis.
+      risk_tier is always "PHISHING" or "SAFE" (threshold = 0.70).
+    """
+    subject = request.form.get("subject", "").strip()
+    body    = request.form.get("body",    "").strip()
 
-    return jsonify({
-        "prediction": prediction,
-        "confidence": confidence,
-        "features":   result["features"],
-    })
+    if not body and not subject:
+        return jsonify({"error": "No email content provided"}), 400
+
+    # ── Parse attachments ──────────────────────────────────────────────────────
+    attachments = []
+    for f in request.files.getlist("attachments[]"):
+        fname = secure_filename(f.filename or "attachment")
+        if Path(fname).suffix.lower() in ALLOWED_ATTACH:
+            attachments.append({"name": fname, "bytes": f.read()})
+
+    # ── Decompose email ───────────────────────────────────────────────────────
+    parsed = parse_email(subject, body, attachments)
+
+    # ── Run URL model on every extracted URL (cap at 20) ──────────────────────
+    url_results = [predict_url(u) for u in parsed["urls"][:20]]
+
+    # ── Run text models on combined subject + body ─────────────────────────────
+    combined_text = parsed["all_text"]
+    lr_result   = predict_text_lr(combined_text)   if combined_text.strip() else None
+    bert_result = predict_text_bert(combined_text) if combined_text.strip() else None
+
+    # ── Run text model on each attachment ──────────────────────────────────────
+    attach_results = []
+    for att in parsed["attach_texts"]:
+        att_lr = predict_text_lr(att["text"])
+        attach_results.append({
+            "filename":      att["name"],
+            "phishing_prob": att_lr["phishing_prob"],
+            "prediction":    att_lr["prediction"],
+            "signals":       att_lr["signals"],
+        })
+
+    # ── Risk Engine ───────────────────────────────────────────────────────────
+    risk = run_risk_engine(url_results, lr_result, bert_result, attach_results)
+
+    # ── Build standardised response ───────────────────────────────────────────
+    return jsonify(build_final_response(
+        risk           = risk,
+        url_results    = url_results,
+        lr_result      = lr_result,
+        bert_result    = bert_result,
+        attach_results = attach_results,
+        parsed         = parsed,
+        subject        = subject,
+    ))
+
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    log.info("Pre-loading models...")
+    get_url_models()
+    get_text_models()
+    get_bert_model()
+    log.info("Starting Flask server on http://0.0.0.0:5000")
+    app.run(host="0.0.0.0", port=5000, debug=False)

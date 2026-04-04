@@ -1,688 +1,735 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>PhishGuard v3</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PhishShield — Threat Detection System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:      #f5f5f0;
-  --bg2:     #ededea;
-  --surf:    #ffffff;
-  --brd:     #d8d8d4;
-  --brd2:    #c0c0bb;
-  --text:    #1a1a18;
-  --muted:   #7a7a72;
-  --red:     #c0392b;
-  --green:   #1a7a4a;
-  --orange:  #b5530a;
-  --accent:  #1a1a18;
-  --mono:    'IBM Plex Mono', monospace;
-  --sans:    'IBM Plex Sans', sans-serif;
-}
+  /* ── Reset & Variables ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html{scroll-behavior:smooth}
-body{
-  background:var(--bg);color:var(--text);
-  font-family:var(--sans);min-height:100vh;
-  font-size:14px;line-height:1.5;
-}
+  :root {
+    --bg:        #080b12;
+    --panel:     #0d1120;
+    --border:    #1e2a42;
+    --accent:    #00e5ff;
+    --accent2:   #7b61ff;
+    --safe:      #00c853;
+    --low:       #4caf50;
+    --medium:    #ffd600;
+    --high:      #ff7a00;
+    --critical:  #ff2d2d;
+    --text:      #c8d6f0;
+    --muted:     #4a5a7a;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Syne', sans-serif;
+    --glow:      0 0 24px rgba(0,229,255,.18);
+  }
 
-/* ── NAV ── */
-nav{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:0 24px;height:52px;
-  background:var(--surf);
-  border-bottom:1px solid var(--brd);
-}
-.logo{
-  font-family:var(--mono);font-size:13px;font-weight:600;
-  color:var(--text);text-decoration:none;letter-spacing:1px;
-}
-.logo span{color:var(--muted);font-weight:400}
-.nav-right{display:flex;align-items:center;gap:24px}
-.nav-a{
-  font-family:var(--mono);font-size:11px;color:var(--muted);
-  text-decoration:none;transition:color .15s;
-}
-.nav-a:hover,.nav-a.act{color:var(--text)}
-.status-dot{
-  display:flex;align-items:center;gap:6px;
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-}
-.dot{width:6px;height:6px;border-radius:50%;background:#1a7a4a}
+  html { scroll-behavior: smooth; }
 
-/* ── LAYOUT ── */
-.page{max-width:740px;margin:0 auto;padding:32px 20px 60px}
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
 
-/* ── HEADER ── */
-.header{margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--brd)}
-.header h1{font-size:22px;font-weight:600;letter-spacing:-.3px}
-.header p{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:5px}
+  /* ── Grid background ───────────────────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
 
-/* ── STATS ── */
-.stats{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
-  margin-bottom:24px;
-}
-.sp{
-  background:var(--surf);border:1px solid var(--brd);
-  border-radius:6px;padding:12px 14px;
-}
-.sp-v{
-  font-family:var(--mono);font-size:20px;font-weight:600;
-  color:var(--text);
-}
-.sp-l{font-size:10px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
-.sp-v.red{color:var(--red)}
-.sp-v.orange{color:var(--orange)}
-.sp-v.green{color:var(--green)}
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,11,18,.85);
+    backdrop-filter: blur(12px);
+  }
 
-/* ── CARD ── */
-.card{
-  background:var(--surf);border:1px solid var(--brd);
-  border-radius:8px;padding:20px;margin-bottom:16px;
-}
-.card-title{
-  font-family:var(--mono);font-size:11px;font-weight:600;
-  text-transform:uppercase;letter-spacing:1px;
-  color:var(--muted);margin-bottom:14px;
-  display:flex;align-items:center;gap:8px;
-}
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    animation: pulse-hex 3s ease-in-out infinite;
+  }
+  @keyframes pulse-hex {
+    0%,100% { filter: drop-shadow(0 0 6px var(--accent)); }
+    50%      { filter: drop-shadow(0 0 18px var(--accent)); }
+  }
+  .logo-text { font-size: 1.3rem; font-weight: 800; letter-spacing: .08em; }
+  .logo-text span { color: var(--accent); }
 
-/* ── INPUTS ── */
-.field-label{
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-  text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;
-}
-.input-row{
-  display:flex;align-items:center;
-  border:1px solid var(--brd);border-radius:5px;
-  background:var(--bg);margin-bottom:12px;
-  transition:border-color .15s;
-  overflow:hidden;
-}
-.input-row:focus-within{border-color:var(--accent);background:var(--surf)}
-.input-pfx{
-  padding:0 10px;font-family:var(--mono);font-size:11px;
-  color:var(--muted);border-right:1px solid var(--brd);
-  white-space:nowrap;align-self:stretch;
-  display:flex;align-items:center;background:var(--bg2);
-}
-input.ifield,textarea.ifield{
-  flex:1;background:transparent;border:none;outline:none;
-  color:var(--text);font-family:var(--mono);font-size:12px;
-  padding:10px 12px;
-}
-input.ifield::placeholder,textarea.ifield::placeholder{color:var(--brd2)}
-textarea.ifield{min-height:72px;resize:vertical;line-height:1.6}
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: .72rem;
+    color: var(--muted); padding: 6px 14px;
+    border: 1px solid var(--border); border-radius: 40px;
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+    transition: background .3s;
+  }
+  .status-dot.online { background: var(--safe); box-shadow: 0 0 8px var(--safe); }
 
-/* ── OPT TEXT ── */
-.opt-toggle{
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-  background:none;border:none;cursor:pointer;padding:0;
-  display:flex;align-items:center;gap:5px;margin-bottom:10px;
-  transition:color .15s;
-}
-.opt-toggle:hover{color:var(--text)}
-.opt-panel{display:none}
-.opt-panel.open{display:block}
+  /* ── Main layout ────────────────────────────────────────────────────────── */
+  .container {
+    position: relative; z-index: 1;
+    max-width: 1100px; margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
 
-/* ── SCAN BTN ── */
-.scan-btn{
-  width:100%;
-  background:var(--accent);
-  border:none;border-radius:5px;
-  color:#fff;font-family:var(--mono);font-size:12px;font-weight:600;
-  padding:11px;cursor:pointer;letter-spacing:.5px;
-  transition:opacity .15s;
-}
-.scan-btn:hover{opacity:.82}
-.scan-btn:active{opacity:.7}
-.scan-btn:disabled{opacity:.35;cursor:not-allowed}
+  .hero {
+    text-align: center; margin-bottom: 52px;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800; letter-spacing: -.01em;
+    line-height: 1.1;
+    background: linear-gradient(120deg, #fff 30%, var(--accent) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 14px;
+  }
+  .hero p {
+    font-size: 1rem; color: var(--muted); max-width: 560px; margin: 0 auto;
+    line-height: 1.6;
+  }
 
-/* ── TEST PILLS ── */
-.test-hd{
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-  text-transform:uppercase;letter-spacing:1px;
-  margin:16px 0 7px;
-}
-.pills{display:flex;flex-wrap:wrap;gap:5px}
-.pill{
-  font-family:var(--mono);font-size:10px;border-radius:4px;
-  padding:3px 8px;cursor:pointer;transition:opacity .15s;
-  border:1px solid transparent;white-space:nowrap;
-}
-.pill.ph{background:#fdf0ef;color:var(--red);border-color:#f0c4bf}
-.pill.sf{background:#edf7f2;color:var(--green);border-color:#b8dfc9}
-.pill:hover{opacity:.7}
+  /* ── Tabs ───────────────────────────────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 5px;
+    margin-bottom: 32px;
+    width: fit-content;
+  }
+  .tab-btn {
+    font-family: var(--sans); font-size: .88rem; font-weight: 600;
+    letter-spacing: .04em;
+    padding: 10px 28px; border-radius: 8px;
+    border: none; cursor: pointer;
+    background: transparent; color: var(--muted);
+    transition: all .2s;
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #000;
+  }
+  .tab-btn:not(.active):hover { color: var(--text); background: var(--border); }
 
-/* ── RESULT ── */
-.result{margin-top:16px;border-radius:6px;border:1px solid var(--brd);overflow:hidden;display:none}
-.result.show{display:block;animation:ri .2s ease}
-@keyframes ri{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.result.Phishing  {border-color:#e8b4b0}
-.result.Safe      {border-color:#a8d5ba}
-.result.Suspicious{border-color:#e8c89a}
+  /* ── Panels ─────────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+  }
 
-/* verdict */
-.verdict{
-  display:flex;align-items:center;gap:14px;
-  padding:16px 18px;
-  border-bottom:1px solid var(--brd);
-}
-.result.Phishing   .verdict{background:#fdf5f4}
-.result.Safe       .verdict{background:#f3faf6}
-.result.Suspicious .verdict{background:#fdf7f0}
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 
-.v-icon{font-size:24px;flex-shrink:0}
-.v-label{font-size:17px;font-weight:600}
-.result.Phishing   .v-label{color:var(--red)}
-.result.Safe       .v-label{color:var(--green)}
-.result.Suspicious .v-label{color:var(--orange)}
-.v-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px}
+  /* ── Form elements ──────────────────────────────────────────────────────── */
+  label {
+    display: block; font-size: .78rem; font-weight: 700;
+    letter-spacing: .1em; color: var(--muted); text-transform: uppercase;
+    margin-bottom: 8px;
+  }
 
-.v-right{margin-left:auto;text-align:right;flex-shrink:0}
-.v-prob{font-family:var(--mono);font-size:22px;font-weight:600}
-.result.Phishing   .v-prob{color:var(--red)}
-.result.Safe       .v-prob{color:var(--green)}
-.result.Suspicious .v-prob{color:var(--orange)}
-.v-conf{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px}
+  input[type="text"], input[type="url"], textarea {
+    width: 100%;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: var(--text);
+    font-family: var(--mono); font-size: .9rem;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+    resize: vertical;
+  }
+  input[type="text"]:focus,
+  input[type="url"]:focus,
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,229,255,.1);
+  }
 
-/* prob bar */
-.pbar-w{padding:10px 18px}
-.pbar-bg{height:3px;background:var(--brd);border-radius:99px;overflow:hidden}
-.pbar-f{height:100%;border-radius:99px;transition:width .7s cubic-bezier(.4,0,.2,1)}
-.result.Phishing   .pbar-f{background:var(--red)}
-.result.Safe       .pbar-f{background:var(--green)}
-.result.Suspicious .pbar-f{background:var(--orange)}
+  .form-row { margin-bottom: 20px; }
 
-/* signals */
-.section{padding:14px 18px;border-top:1px solid var(--brd)}
-.sec-title{
-  font-family:var(--mono);font-size:10px;font-weight:600;
-  text-transform:uppercase;letter-spacing:1px;
-  color:var(--muted);margin-bottom:10px;
-}
-.sig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
-.sig-item{
-  background:var(--bg);border:1px solid var(--brd);
-  border-radius:5px;padding:8px 10px;
-}
-.sig-name{font-family:var(--mono);font-size:9px;color:var(--muted);margin-bottom:5px;text-transform:uppercase}
-.sig-bar-bg{height:2px;background:var(--brd);border-radius:99px;overflow:hidden;margin-bottom:4px}
-.sig-bar-f{height:100%;border-radius:99px;transition:width .6s ease}
-.sig-val{font-family:var(--mono);font-size:11px;font-weight:600}
+  .file-drop {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    font-size: .85rem; color: var(--muted);
+  }
+  .file-drop:hover { border-color: var(--accent); background: rgba(0,229,255,.03); }
+  .file-drop input { display: none; }
+  .file-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .file-chip {
+    font-family: var(--mono); font-size: .72rem;
+    background: var(--border); border-radius: 20px;
+    padding: 4px 12px; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .file-chip button {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 1rem; line-height: 1;
+  }
 
-/* reasons */
-.reasons-list{display:flex;flex-direction:column;gap:4px}
-.reason-item{
-  display:flex;align-items:flex-start;gap:7px;
-  font-family:var(--mono);font-size:11px;color:var(--text);
-  background:var(--bg);border:1px solid var(--brd);
-  border-radius:4px;padding:6px 9px;
-}
-.r-bullet{color:var(--muted);flex-shrink:0}
+  /* ── Submit button ──────────────────────────────────────────────────────── */
+  .btn-scan {
+    font-family: var(--sans); font-size: .95rem; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase;
+    padding: 15px 40px; border-radius: 10px; border: none;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    color: #000; cursor: pointer; width: 100%;
+    transition: opacity .2s, transform .1s;
+    position: relative; overflow: hidden;
+  }
+  .btn-scan:hover { opacity: .9; }
+  .btn-scan:active { transform: scale(.99); }
+  .btn-scan:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-scan .spinner {
+    display: none; width: 18px; height: 18px;
+    border: 2px solid rgba(0,0,0,.3);
+    border-top-color: #000;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-/* features grid */
-.feat-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-  gap:4px;
-}
-.feat-item{
-  display:flex;align-items:center;justify-content:space-between;
-  font-family:var(--mono);font-size:10px;
-  background:var(--bg);border:1px solid var(--brd);
-  border-radius:4px;padding:5px 9px;
-}
-.feat-key{color:var(--muted)}
-.feat-val{font-weight:600;color:var(--text)}
-.feat-val.bad{color:var(--red)}
-.feat-val.good{color:var(--green)}
+  /* ── Results ────────────────────────────────────────────────────────────── */
+  #results { margin-top: 36px; animation: fadeUp .4s ease; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 
-/* flags */
-.flag-row{display:flex;flex-wrap:wrap;gap:5px;padding:0 18px 10px}
-.flag{
-  font-family:var(--mono);font-size:9px;
-  padding:2px 7px;border-radius:3px;
-  border:1px solid var(--brd);color:var(--muted);
-  background:var(--bg2);
-}
+  /* Risk meter */
+  .risk-banner {
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    border: 1px solid;
+    display: flex; align-items: center; gap: 24px;
+    flex-wrap: wrap;
+  }
+  .risk-icon { font-size: 2.8rem; line-height: 1; }
+  .risk-info { flex: 1; min-width: 200px; }
+  .risk-label {
+    font-size: 1.6rem; font-weight: 800; letter-spacing: .06em;
+  }
+  .risk-subtext { font-family: var(--mono); font-size: .78rem; color: inherit; opacity: .7; margin-top: 4px; }
 
-/* dominant */
-.dominant{
-  border-top:1px solid var(--brd);
-  padding:9px 18px;
-  display:flex;align-items:center;gap:8px;
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-}
-.dom-badge{
-  padding:2px 7px;border-radius:3px;font-size:9px;font-weight:600;
-  background:var(--bg2);color:var(--text);
-  border:1px solid var(--brd);letter-spacing:.5px;
-}
+  .risk-gauge {
+    width: 140px; flex-shrink: 0;
+  }
+  .gauge-track {
+    height: 8px; background: rgba(255,255,255,.1);
+    border-radius: 4px; overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%; border-radius: 4px;
+    transition: width 1s cubic-bezier(.22,1,.36,1);
+  }
+  .gauge-val {
+    font-family: var(--mono); font-size: 1.8rem; font-weight: 700;
+    text-align: right; margin-top: 4px;
+  }
 
-/* ── HISTORY ── */
-.hist-section{margin-top:24px}
-.sec-hd{
-  font-family:var(--mono);font-size:10px;font-weight:600;
-  text-transform:uppercase;letter-spacing:1px;color:var(--muted);
-  margin-bottom:8px;
-}
-.hist-list{display:flex;flex-direction:column;gap:4px}
-.hi{
-  display:grid;
-  grid-template-columns:74px 1fr 60px 60px 50px;
-  align-items:center;gap:10px;
-  background:var(--surf);border:1px solid var(--brd);
-  border-radius:5px;padding:8px 12px;
-  font-family:var(--mono);font-size:11px;
-}
-.hi.Phishing  {border-left:3px solid var(--red)}
-.hi.Safe      {border-left:3px solid var(--green)}
-.hi.Suspicious{border-left:3px solid var(--orange)}
-.hi-badge{font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;text-align:center}
-.hi.Phishing   .hi-badge{background:#fdf0ef;color:var(--red)}
-.hi.Safe       .hi-badge{background:#edf7f2;color:var(--green)}
-.hi.Suspicious .hi-badge{background:#fdf7f0;color:var(--orange)}
-.hi-url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
-.hi-prob,.hi-conf,.hi-time{color:var(--muted);text-align:right;font-size:10px}
-.empty{
-  text-align:center;padding:20px;
-  font-family:var(--mono);font-size:11px;color:var(--muted);
-  border:1px dashed var(--brd);border-radius:6px;
-}
+  /* Section cards */
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
 
-/* ── SPINNER ── */
-.spin{
-  width:13px;height:13px;
-  border:2px solid var(--brd);border-top-color:var(--text);
-  border-radius:50%;animation:sp .6s linear infinite;
-  display:inline-block;vertical-align:middle;
-}
-@keyframes sp{to{transform:rotate(360deg)}}
+  .result-card {
+    background: rgba(255,255,255,.02);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .result-card h3 {
+    font-size: .72rem; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .result-card h3 .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
 
-/* ── FOOTER ── */
-footer{
-  border-top:1px solid var(--brd);
-  padding:14px 24px;
-  display:flex;justify-content:space-between;align-items:center;
-  font-family:var(--mono);font-size:10px;color:var(--muted);
-  flex-wrap:wrap;gap:6px;
-  background:var(--surf);
-}
-footer a{color:var(--text);text-decoration:none}
-footer a:hover{text-decoration:underline}
+  /* Score bar */
+  .score-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .score-label { font-family: var(--mono); font-size: .75rem; color: var(--muted); width: 110px; flex-shrink: 0; }
+  .score-bar-wrap { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .score-bar { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(.22,1,.36,1); }
+  .score-val { font-family: var(--mono); font-size: .75rem; width: 42px; text-align: right; flex-shrink: 0; }
+
+  /* Signal tags */
+  .signals { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .signal-tag {
+    font-family: var(--mono); font-size: .68rem;
+    padding: 4px 10px; border-radius: 20px;
+    border: 1px solid;
+  }
+  .signal-tag.warn  { border-color: #ff7a00; color: #ff7a00; background: rgba(255,122,0,.08); }
+  .signal-tag.safe  { border-color: var(--safe); color: var(--safe); background: rgba(0,200,83,.08); }
+  .signal-tag.info  { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,.06); }
+
+  /* URL table */
+  .url-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .url-table th {
+    font-size: .67rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); text-align: left; padding: 0 8px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .url-table td {
+    font-family: var(--mono); font-size: .72rem; padding: 8px;
+    border-bottom: 1px solid rgba(30,42,66,.5);
+    word-break: break-all;
+  }
+  .url-table tr:last-child td { border-bottom: none; }
+
+  .badge {
+    display: inline-block; padding: 3px 9px;
+    border-radius: 4px; font-size: .67rem; font-weight: 700;
+    letter-spacing: .05em;
+  }
+
+  /* Components breakdown */
+  .comp-list { margin-top: 4px; }
+  .comp-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid rgba(30,42,66,.6);
+    font-family: var(--mono); font-size: .78rem;
+  }
+  .comp-row:last-child { border-bottom: none; }
+
+  /* Error */
+  .error-box {
+    background: rgba(255,45,45,.07);
+    border: 1px solid #ff2d2d;
+    border-radius: 10px; padding: 16px 20px;
+    font-family: var(--mono); font-size: .82rem; color: #ff2d2d;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    header { padding: 16px 20px; }
+    .container { padding: 28px 16px 60px; }
+    .panel { padding: 20px; }
+    .risk-banner { padding: 20px; }
+    .tabs { width: 100%; }
+    .tab-btn { flex: 1; text-align: center; padding: 10px 12px; }
+  }
 </style>
 </head>
 <body>
 
-<nav>
-  <a href="/" class="logo">PhishGuard <span>v3</span></a>
-  <div class="nav-right">
-    <a href="/" class="nav-a act">Detector</a>
-    <a href="/about" class="nav-a">About</a>
-    <div class="status-dot"><div class="dot"></div>8-Stage Pipeline</div>
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon"></div>
+    <div class="logo-text">Phish<span>Shield</span></div>
   </div>
-</nav>
-
-<div class="page">
-
-  <div class="header">
-    <h1>Phishing URL Detector</h1>
-    <p>Hybrid ML + Rules + Anomaly Detection · 34 URL Features · Brand Intelligence</p>
+  <div class="status-pill">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">checking api…</span>
   </div>
+</header>
 
-  <!-- STATS -->
-  <div class="stats">
-    <div class="sp">
-      <div class="sp-v" id="s-total">0</div>
-      <div class="sp-l">Total Scans</div>
-    </div>
-    <div class="sp">
-      <div class="sp-v red" id="s-phish">0</div>
-      <div class="sp-l">Phishing</div>
-    </div>
-    <div class="sp">
-      <div class="sp-v orange" id="s-susp">0</div>
-      <div class="sp-l">Suspicious</div>
-    </div>
-    <div class="sp">
-      <div class="sp-v green" id="s-safe">0</div>
-      <div class="sp-l">Safe</div>
-    </div>
+<!-- Main -->
+<div class="container">
+
+  <div class="hero">
+    <h1>Threat Detection System</h1>
+    <p>Submit a suspicious URL or a full email (subject, body, attachments) and our AI risk engine will analyse every component separately.</p>
   </div>
 
-  <!-- SCANNER -->
-  <div class="card">
-    <div class="card-title">🛡 URL Scanner</div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('url',this)">🔗 Scan URL</button>
+    <button class="tab-btn"        onclick="switchTab('email',this)">📧 Scan Email</button>
+  </div>
 
-    <div class="field-label">URL to scan</div>
-    <div class="input-row">
-      <span class="input-pfx">https://</span>
-      <input class="ifield" id="url-in" type="text"
-        placeholder="enter domain or full URL..."
-        onkeydown="if(event.key==='Enter')scan()"/>
-    </div>
-
-    <button class="opt-toggle" onclick="toggleText(this)">
-      <span id="opt-arrow">▶</span>
-      <span id="opt-label">Add email/SMS body (optional)</span>
-    </button>
-    <div class="opt-panel" id="opt-panel">
-      <div class="field-label">Email / SMS Content</div>
-      <div class="input-row" style="align-items:flex-start">
-        <span class="input-pfx" style="padding-top:11px">msg</span>
-        <textarea class="ifield" id="txt-in"
-          placeholder="Paste suspicious email or SMS body here..."></textarea>
+  <!-- ── URL tab ─────────────────────────────────────────────────────────── -->
+  <div id="tab-url" class="tab-panel active">
+    <div class="panel">
+      <div class="form-row">
+        <label>Suspicious URL</label>
+        <input type="url" id="urlInput" placeholder="https://suspicious-site.tk/login/verify?account=…" />
       </div>
-    </div>
-
-    <button class="scan-btn" id="scan-btn" onclick="scan()">
-      Run Detection
-    </button>
-
-    <div class="test-hd">Quick test cases</div>
-    <div class="pills" id="pill-wrap"></div>
-
-    <div class="result" id="result-box"></div>
-  </div>
-
-  <!-- HISTORY -->
-  <div class="hist-section">
-    <div class="sec-hd">Scan History</div>
-    <div class="hist-list" id="hist-list">
-      <div class="empty">No scans yet</div>
+      <button class="btn-scan" id="urlBtn" onclick="scanUrl()">
+        <span class="btn-label">Analyse URL</span>
+        <div class="spinner" id="urlSpinner"></div>
+      </button>
     </div>
   </div>
 
-</div>
+  <!-- ── Email tab ───────────────────────────────────────────────────────── -->
+  <div id="tab-email" class="tab-panel">
+    <div class="panel">
+      <div class="form-row">
+        <label>Subject</label>
+        <input type="text" id="emailSubject" placeholder="URGENT: Your account has been suspended" />
+      </div>
+      <div class="form-row">
+        <label>Email Body</label>
+        <textarea id="emailBody" rows="7"
+          placeholder="Dear customer, your bank account has been temporarily locked due to suspicious activity.
+Verify your identity immediately at http://secure-verify.tk/confirm?id=abc123
+Failure to act within 24 hours will result in permanent suspension."></textarea>
+      </div>
+      <div class="form-row">
+        <label>Attachments (optional)</label>
+        <div class="file-drop" onclick="document.getElementById('attachInput').click()">
+          <input type="file" id="attachInput" multiple
+                 accept=".txt,.eml,.msg,.pdf,.html,.htm"
+                 onchange="handleFiles(this.files)" />
+          <div>📎 Click to attach files &nbsp;·&nbsp; <span style="opacity:.5">.txt .eml .msg .pdf .html</span></div>
+          <div class="file-list" id="fileList"></div>
+        </div>
+      </div>
+      <button class="btn-scan" id="emailBtn" onclick="scanEmail()">
+        <span class="btn-label">Analyse Email</span>
+        <div class="spinner" id="emailSpinner"></div>
+      </button>
+    </div>
+  </div>
 
-<footer>
-  <span>PhishGuard v3 · LR+RF+XGB Stacking</span>
-  <span>URL Acc <strong>93.1%</strong> · Text Acc <strong>98.05%</strong> · AUC 0.980 / 0.997</span>
-  <span><a href="/about">How It Works →</a></span>
-</footer>
+  <!-- Results -->
+  <div id="results" style="display:none;"></div>
+
+</div><!-- /container -->
 
 <script>
-const TESTS = [
-  {c:"ph", u:"https://accounts.google.com-security-alert.net/signin",    t:"",  l:"Brand in subdomain"},
-  {c:"ph", u:"http://micosoft.com/login/verify",                         t:"",  l:"Lookalike domain"},
-  {c:"ph", u:"http://192.168.1.1/login/bankofamerica/verify",            t:"",  l:"IP-based phishing"},
-  {c:"ph", u:"http://free-prize-winner.xyz/claim?token=abc123",          t:"",  l:"Suspicious TLD"},
-  {c:"ph", u:"https://secure.bankofamerica.com.phish-domain.com/",       t:"URGENT: Your account is suspended. Verify immediately.", l:"URL+Text combo"},
-  {c:"sf", u:"https://github.com/user/repo/blob/main/README.md",         t:"",  l:"GitHub deep path"},
-  {c:"sf", u:"https://www.google.com",                                   t:"",  l:"Trusted domain"},
-  {c:"sf", u:"https://stackoverflow.com/questions/12345",                t:"Your Amazon order #112-3456789 has shipped.", l:"Transactional safe"},
-];
+// ── Config ────────────────────────────────────────────────────────────────────
+const API = 'http://localhost:5000';
+let attachedFiles = [];
 
-const pw = document.getElementById('pill-wrap');
-TESTS.forEach(tc => {
-  const b = document.createElement('button');
-  b.className = `pill ${tc.c==='ph'?'ph':'sf'}`;
-  b.textContent = (tc.c==='ph'?'✕ ':'✓ ') + tc.l;
-  b.title = tc.u;
-  b.addEventListener('click', () => {
-    document.getElementById('url-in').value = tc.u;
-    if (tc.t) {
-      document.getElementById('txt-in').value = tc.t;
-      openText();
-    }
-  });
-  pw.appendChild(b);
-});
-
-function openText() {
-  const p = document.getElementById('opt-panel');
-  if (!p.classList.contains('open')) {
-    p.classList.add('open');
-    document.getElementById('opt-arrow').textContent = '▼';
-    document.getElementById('opt-label').textContent = 'Email/SMS body (optional)';
-  }
-}
-function toggleText() {
-  const p = document.getElementById('opt-panel');
-  p.classList.toggle('open');
-  const open = p.classList.contains('open');
-  document.getElementById('opt-arrow').textContent = open ? '▼' : '▶';
-  document.getElementById('opt-label').textContent = open
-    ? 'Email/SMS body (optional)'
-    : 'Add email/SMS body (optional)';
-}
-
-function sigColor(v) {
-  if (v >= 70) return 'var(--red)';
-  if (v >= 40) return 'var(--orange)';
-  return 'var(--green)';
-}
-
-// Format feature value for display
-function featDisplay(key, val) {
-  if (typeof val === 'boolean') {
-    return { text: val ? 'Yes' : 'No', cls: val ? 'bad' : 'good' };
-  }
-  if (typeof val === 'number') {
-    // Higher is bad for these
-    const badIfHigh = ['url_length','num_dots','num_hyphens','num_subdomains',
-      'suspicious_keywords','entropy','digit_letter_ratio','num_special_chars',
-      'query_length','path_length','num_digits','path_keyword_density',
-      'registered_domain_entropy','min_brand_lev_dist','num_brands_mentioned'];
-    const text = Number.isInteger(val) ? val : val.toFixed(3);
-    return { text, cls: '' };
-  }
-  return { text: String(val), cls: '' };
-}
-
-// Friendly feature names
-const FEAT_NAMES = {
-  is_trusted_domain:'Trusted Domain', has_https:'HTTPS',
-  suspicious_tld:'Suspicious TLD', has_ip_address:'IP in URL',
-  brand_in_subdomain:'Brand in Subdomain', brand_not_in_reg:'Brand Not in Reg.',
-  is_lookalike_domain:'Lookalike Domain', min_brand_lev_dist:'Lev. Distance',
-  num_brands_mentioned:'Brands Mentioned', has_digit_sub:'Digit Substitution',
-  has_punycode:'Punycode', tld_mismatch:'TLD Mismatch',
-  path_has_brand:'Brand in Path', url_length:'URL Length',
-  num_dots:'Dots', num_hyphens:'Hyphens', num_subdomains:'Subdomains',
-  excessive_subdomains:'Excessive Subdomains', url_depth:'URL Depth',
-  path_length:'Path Length', has_at_symbol:'@ Symbol',
-  has_double_slash:'Double Slash', has_port:'Has Port',
-  has_fragment:'Fragment (#)', has_hex_encoding:'Hex Encoding',
-  entropy:'Entropy', registered_domain_entropy:'Domain Entropy',
-  registered_domain_len:'Domain Length', suspicious_keywords:'Susp. Keywords',
-  path_keyword_density:'Path KW Density', num_digits:'Digits',
-  digit_letter_ratio:'Digit/Letter Ratio', num_special_chars:'Special Chars',
-  query_length:'Query Length',
-};
-
-function renderResult(d) {
-  const box = document.getElementById('result-box');
-  // API now returns prediction (lowercase) + confidence + features
-  const rawLabel = d.prediction || d.label || 'suspicious';
-  const lbl = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1); // Safe/Suspicious/Phishing
-  const prob = Math.round((d.probability ?? 0) * 100);
-  const icons = {Phishing:'✕', Safe:'✓', Suspicious:'⚠'};
-  const subs  = {
-    Phishing:  'Threat detected — do not interact.',
-    Safe:      'No phishing indicators found.',
-    Suspicious:'Borderline — treat with caution.'
-  };
-
-  box.className = `result show ${lbl}`;
-
-  const sigNames = {
-    url_model:'URL Model', text_model:'Text Model',
-    rule_engine:'Rule Engine', reputation:'Reputation', anomaly:'Anomaly Risk'
-  };
-  let sigHTML = '';
-  for (const [k, v] of Object.entries(d.signals || {})) {
-    if (v === null) continue;
-    const pct = Math.round(v);
-    const col = sigColor(pct);
-    sigHTML += `
-      <div class="sig-item">
-        <div class="sig-name">${sigNames[k] || k}</div>
-        <div class="sig-bar-bg">
-          <div class="sig-bar-f" style="width:0%;background:${col}" data-w="${pct}"></div>
-        </div>
-        <div class="sig-val" style="color:${col}">${pct}%</div>
-      </div>`;
-  }
-
-  const reasonsHTML = (d.reasons || []).map(r =>
-    `<div class="reason-item"><span class="r-bullet">›</span>${r}</div>`
-  ).join('');
-
-  // Features grid from new API shape
-  let featHTML = '';
-  if (d.features) {
-    for (const [k, v] of Object.entries(d.features)) {
-      const { text, cls } = featDisplay(k, v);
-      const name = FEAT_NAMES[k] || k;
-      featHTML += `
-        <div class="feat-item">
-          <span class="feat-key">${name}</span>
-          <span class="feat-val ${cls}">${text}</span>
-        </div>`;
-    }
-  }
-
-  let flagsHTML = '';
-  if (d.is_transactional) flagsHTML += `<span class="flag">📦 Transactional</span>`;
-  if (d.anomaly_flag)     flagsHTML += `<span class="flag">⚠ Anomaly</span>`;
-  if (d.features?.is_trusted_domain) flagsHTML += `<span class="flag">🛡 Trusted Domain</span>`;
-
-  const confVal = d.confidence ?? d.confidence_pct ?? '—';
-
-  box.innerHTML = `
-    <div class="verdict">
-      <div class="v-icon">${icons[lbl]}</div>
-      <div style="flex:1">
-        <div class="v-label">${lbl}</div>
-        <div class="v-sub">${subs[lbl]}</div>
-      </div>
-      <div class="v-right">
-        <div class="v-prob">${prob}%</div>
-        <div class="v-conf">Confidence: ${confVal}${typeof confVal === 'number' ? '%' : ''}</div>
-      </div>
-    </div>
-
-    <div class="pbar-w">
-      <div class="pbar-bg"><div class="pbar-f" style="width:0%" data-w="${prob}"></div></div>
-    </div>
-
-    ${flagsHTML ? `<div class="flag-row">${flagsHTML}</div>` : ''}
-
-    <div class="section">
-      <div class="sec-title">Detection Signals</div>
-      <div class="sig-grid">${sigHTML}</div>
-    </div>
-
-    ${reasonsHTML ? `
-    <div class="section">
-      <div class="sec-title">Why This Decision</div>
-      <div class="reasons-list">${reasonsHTML}</div>
-    </div>` : ''}
-
-    ${featHTML ? `
-    <div class="section">
-      <div class="sec-title">URL Features</div>
-      <div class="feat-grid">${featHTML}</div>
-    </div>` : ''}
-
-    <div class="dominant">
-      <span>Primary stage:</span>
-      <span class="dom-badge">${(d.dominant_stage||'').toUpperCase()}</span>
-    </div>
-  `;
-
-  setTimeout(() => {
-    box.querySelectorAll('[data-w]').forEach(el => {
-      el.style.width = el.dataset.w + '%';
-    });
-  }, 60);
-}
-
-async function scan() {
-  const url  = document.getElementById('url-in').value.trim();
-  const text = document.getElementById('txt-in').value.trim();
-  if (!url) { alert('Please enter a URL.'); return; }
-
-  const btn = document.getElementById('scan-btn');
-  const box = document.getElementById('result-box');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> Running...';
-  box.className = 'result show Suspicious';
-  box.innerHTML = `
-    <div class="verdict">
-      <div class="v-icon"><span class="spin" style="width:20px;height:20px"></span></div>
-      <div>
-        <div class="v-label" style="color:var(--muted)">Analyzing</div>
-        <div class="v-sub">Running 8-stage pipeline...</div>
-      </div>
-    </div>`;
-
+// ── Health check ──────────────────────────────────────────────────────────────
+async function checkHealth() {
   try {
-    const res  = await fetch('/predict', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({url, text})
+    const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(4000) });
+    const d = await r.json();
+    document.getElementById('statusDot').classList.add('online');
+    document.getElementById('statusText').textContent =
+      `API online · BERT ${d.bert_model ? 'ready' : 'off'}`;
+  } catch {
+    document.getElementById('statusText').textContent = 'API offline';
+  }
+}
+checkHealth();
+
+// ── Tab switch ────────────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('results').style.display = 'none';
+}
+
+// ── File handling ──────────────────────────────────────────────────────────────
+function handleFiles(files) {
+  for (const f of files) attachedFiles.push(f);
+  renderFileList();
+}
+function removeFile(i) {
+  attachedFiles.splice(i, 1);
+  renderFileList();
+}
+function renderFileList() {
+  const el = document.getElementById('fileList');
+  el.innerHTML = attachedFiles.map((f, i) =>
+    `<div class="file-chip">📄 ${f.name}
+       <button onclick="removeFile(${i})">×</button>
+     </div>`
+  ).join('');
+}
+
+// ── Loading state ─────────────────────────────────────────────────────────────
+function setLoading(type, on) {
+  const btn  = document.getElementById(type + 'Btn');
+  const lbl  = btn.querySelector('.btn-label');
+  const spin = document.getElementById(type + 'Spinner');
+  btn.disabled   = on;
+  lbl.style.display  = on ? 'none' : '';
+  spin.style.display = on ? 'block' : 'none';
+}
+
+// ── Scan URL ──────────────────────────────────────────────────────────────────
+async function scanUrl() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return flash('urlInput', 'Please enter a URL');
+  setLoading('url', true);
+  try {
+    const res  = await fetch(`${API}/predict/url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    renderResult(data);
-    refreshStats();
-  } catch(e) {
-    box.className = 'result show Suspicious';
-    box.innerHTML = `<div class="verdict">
-      <div class="v-icon">⚠</div>
-      <div><div class="v-label" style="color:var(--orange)">Error</div>
-      <div class="v-sub">${e.message}</div></div></div>`;
+    renderUrlResult(data);
+  } catch (e) {
+    renderError(e.message);
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = 'Run Detection';
+    setLoading('url', false);
   }
 }
 
-function anim(el, to) {
-  const from = parseInt(el.textContent)||0;
-  if (from===to) return;
-  let s=null;
-  (function step(ts){
-    if(!s)s=ts;
-    const p=Math.min((ts-s)/400,1);
-    el.textContent=Math.round(from+(to-from)*p);
-    if(p<1)requestAnimationFrame(step);
-  })(performance.now());
-}
-
-async function refreshStats() {
+// ── Scan Email ────────────────────────────────────────────────────────────────
+async function scanEmail() {
+  const subject = document.getElementById('emailSubject').value.trim();
+  const body    = document.getElementById('emailBody').value.trim();
+  if (!subject && !body) return flash('emailBody', 'Please enter email content');
+  setLoading('email', true);
   try {
-    const d = await (await fetch('/stats')).json();
-    anim(document.getElementById('s-total'), d.total||0);
-    anim(document.getElementById('s-phish'), d.phishing||0);
-    anim(document.getElementById('s-susp'),  d.suspicious||0);
-    anim(document.getElementById('s-safe'),  d.safe||0);
-
-    const list = document.getElementById('hist-list');
-    if (!d.history?.length) {
-      list.innerHTML='<div class="empty">No scans yet</div>'; return;
-    }
-    list.innerHTML = d.history.map(h => `
-      <div class="hi ${h.label}">
-        <span class="hi-badge">${h.label}</span>
-        <span class="hi-url" title="${h.url}">${h.url}</span>
-        <span class="hi-prob">${Math.round(h.prob*100)}%</span>
-        <span class="hi-conf">${h.conf}</span>
-        <span class="hi-time">${h.time}</span>
-      </div>`).join('');
-  } catch(e){}
+    const fd = new FormData();
+    fd.append('subject', subject);
+    fd.append('body',    body);
+    for (const f of attachedFiles) fd.append('attachments[]', f);
+    const res  = await fetch(`${API}/predict/email`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderEmailResult(data);
+  } catch (e) {
+    renderError(e.message);
+  } finally {
+    setLoading('email', false);
+  }
 }
 
-refreshStats();
-setInterval(refreshStats, 6000);
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function flash(id, msg) {
+  const el = document.getElementById(id);
+  el.style.borderColor = 'var(--critical)';
+  el.placeholder = msg;
+  setTimeout(() => { el.style.borderColor = ''; }, 2000);
+}
+
+function riskColor(tier) {
+  const map = { SAFE:'#00c853', LOW:'#4caf50', MEDIUM:'#ffd600', HIGH:'#ff7a00', CRITICAL:'#ff2d2d' };
+  return map[tier] || '#aaa';
+}
+function riskIcon(tier) {
+  const map = { SAFE:'✅', LOW:'🟢', MEDIUM:'⚠️', HIGH:'🔴', CRITICAL:'☠️' };
+  return map[tier] || '❓';
+}
+function badgeHtml(pred) {
+  const isPhish = pred === 'phishing';
+  const bg = isPhish ? 'rgba(255,45,45,.15)' : 'rgba(0,200,83,.12)';
+  const cl = isPhish ? '#ff2d2d' : '#00c853';
+  return `<span class="badge" style="background:${bg};color:${cl}">${isPhish ? 'PHISHING' : 'SAFE'}</span>`;
+}
+
+function scoreBarColor(prob) {
+  if (prob >= .8) return 'var(--critical)';
+  if (prob >= .6) return 'var(--high)';
+  if (prob >= .4) return 'var(--medium)';
+  return 'var(--safe)';
+}
+
+function signalsHtml(signals, type = 'warn') {
+  if (!signals || !signals.length)
+    return `<span class="signal-tag safe">No suspicious signals</span>`;
+  return signals.map(s => `<span class="signal-tag ${type}">${s}</span>`).join('');
+}
+
+function scoreRowHtml(label, prob) {
+  if (prob === null || prob === undefined) return '';
+  const pct   = (prob * 100).toFixed(1);
+  const color = scoreBarColor(prob);
+  return `
+    <div class="score-row">
+      <span class="score-label">${label}</span>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <span class="score-val" style="color:${color}">${pct}%</span>
+    </div>`;
+}
+
+// ── Render URL Result ─────────────────────────────────────────────────────────
+function renderUrlResult(d) {
+  const tier  = d.risk_tier;
+  const color = d.risk_color || riskColor(tier);
+  const prob  = d.phishing_prob;
+  const pct   = (prob * 100).toFixed(1);
+
+  const html = `
+  <div class="risk-banner" style="background:${color}18;border-color:${color}55;color:${color}">
+    <div class="risk-icon">${riskIcon(tier)}</div>
+    <div class="risk-info">
+      <div class="risk-label">${tier}</div>
+      <div class="risk-subtext">Phishing probability · ${pct}%</div>
+    </div>
+    <div class="risk-gauge">
+      <div class="gauge-val" style="color:${color}">${pct}%</div>
+      <div class="gauge-track"><div class="gauge-fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>
+  </div>
+
+  <div class="result-grid">
+    <div class="result-card">
+      <h3><div class="dot"></div>Model Scores</h3>
+      ${scoreRowHtml('XGBoost', d.xgb_prob)}
+      ${scoreRowHtml('Logistic Reg.', d.lr_prob)}
+      ${scoreRowHtml('Ensemble', d.phishing_prob)}
+    </div>
+    <div class="result-card">
+      <h3><div class="dot"></div>Detection Signals</h3>
+      <div class="signals">${signalsHtml(d.signals)}</div>
+    </div>
+  </div>
+
+  <div class="result-card" style="margin-top:16px">
+    <h3><div class="dot"></div>Scanned URL</h3>
+    <div style="font-family:var(--mono);font-size:.8rem;word-break:break-all;color:var(--text);margin-top:4px">
+      ${d.url} &nbsp; ${badgeHtml(d.prediction)}
+    </div>
+  </div>`;
+
+  show(html);
+}
+
+// ── Render Email Result ───────────────────────────────────────────────────────
+function renderEmailResult(d) {
+  const risk  = d.risk;
+  const tier  = risk.risk_tier;
+  const color = risk.risk_color || riskColor(tier);
+  const prob  = risk.risk_score;
+  const pct   = (prob * 100).toFixed(1);
+  const lr    = d.text_lr   || {};
+  const bert  = d.text_bert || {};
+  const urls  = d.url_results || [];
+  const atts  = d.attachment_results || [];
+
+  // URL table rows
+  const urlRows = urls.length
+    ? urls.map(u => `
+        <tr>
+          <td style="max-width:300px">${u.url}</td>
+          <td style="color:${scoreBarColor(u.phishing_prob)};text-align:center">${(u.phishing_prob*100).toFixed(1)}%</td>
+          <td style="text-align:center">${badgeHtml(u.prediction)}</td>
+        </tr>`).join('')
+    : `<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:14px">No URLs detected in this email</td></tr>`;
+
+  // Attachment rows
+  const attSection = atts.length ? `
+    <div class="result-card">
+      <h3><div class="dot"></div>Attachments (${atts.length})</h3>
+      ${atts.map(a => `
+        <div class="comp-row">
+          <span>📎 ${a.filename}</span>
+          <span>${badgeHtml(a.prediction)} &nbsp;
+            <span style="font-family:var(--mono);font-size:.72rem;color:${scoreBarColor(a.phishing_prob)}">
+              ${(a.phishing_prob*100).toFixed(1)}%
+            </span>
+          </span>
+        </div>`).join('')}
+    </div>` : '';
+
+  const html = `
+  <!-- Risk banner -->
+  <div class="risk-banner" style="background:${color}18;border-color:${color}55;color:${color}">
+    <div class="risk-icon">${riskIcon(tier)}</div>
+    <div class="risk-info">
+      <div class="risk-label">${tier} RISK</div>
+      <div class="risk-subtext">Composite risk score · ${pct}%</div>
+    </div>
+    <div class="risk-gauge">
+      <div class="gauge-val" style="color:${color}">${pct}%</div>
+      <div class="gauge-track"><div class="gauge-fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>
+  </div>
+
+  <!-- Component breakdown + Text analysis -->
+  <div class="result-grid">
+
+    <div class="result-card">
+      <h3><div class="dot"></div>Risk Components</h3>
+      <div class="comp-list">
+        ${scoreRowHtml('URL (worst)', risk.components.url)}
+        ${scoreRowHtml('Text · LR', risk.components.text_lr)}
+        ${risk.components.text_bert !== null ? scoreRowHtml('Text · BERT', risk.components.text_bert) : ''}
+        ${scoreRowHtml('Attachments', risk.components.attachment)}
+        <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+          ${scoreRowHtml('FINAL SCORE', risk.risk_score)}
+        </div>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <h3><div class="dot"></div>Text Analysis</h3>
+      ${scoreRowHtml('TF-IDF + LR', lr.phishing_prob)}
+      ${bert.phishing_prob != null ? scoreRowHtml('DistilBERT', bert.phishing_prob) : '<div style="font-family:var(--mono);font-size:.72rem;color:var(--muted)">DistilBERT not loaded</div>'}
+      <div class="signals" style="margin-top:12px">${signalsHtml(lr.signals || [])}</div>
+    </div>
+
+  </div>
+
+  <!-- All signals -->
+  ${risk.all_signals && risk.all_signals.length ? `
+  <div class="result-card" style="margin-top:16px">
+    <h3><div class="dot"></div>All Detection Signals</h3>
+    <div class="signals">${signalsHtml(risk.all_signals)}</div>
+  </div>` : ''}
+
+  <!-- URL table -->
+  <div class="result-card" style="margin-top:16px">
+    <h3><div class="dot"></div>URLs Found (${urls.length})</h3>
+    <table class="url-table">
+      <thead><tr><th>URL</th><th>P(phish)</th><th>Verdict</th></tr></thead>
+      <tbody>${urlRows}</tbody>
+    </table>
+  </div>
+
+  <!-- Attachments -->
+  ${attSection}`;
+
+  show(html);
+}
+
+// ── Render Error ──────────────────────────────────────────────────────────────
+function renderError(msg) {
+  show(`<div class="error-box">⚠ Error: ${msg}<br><span style="opacity:.6">Make sure the Flask API is running on ${API}</span></div>`);
+}
+
+function show(html) {
+  const el = document.getElementById('results');
+  el.innerHTML = html;
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 </script>
 </body>
 </html>
