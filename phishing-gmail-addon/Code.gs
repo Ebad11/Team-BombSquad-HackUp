@@ -367,7 +367,7 @@ function buildContextualCard(e) {
 
   // ── Detect Attachments — offer Sandbox button if any exist ───────
   var hasAttachments = false;
-  var attachmentNames = [];
+  var attachmentNames = []; 
   try {
     if (e.messageMetadata && e.messageMetadata.accessToken) {
       GmailApp.setCurrentMessageAccessToken(e.messageMetadata.accessToken);
