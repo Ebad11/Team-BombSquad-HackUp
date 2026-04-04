@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Warning - PhishGuard</title>
+  <style>
+    body {
+      background-color: #cb2431;
+      color: white;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+    }
+    .container {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 40px;
+      border-radius: 8px;
+      max-width: 600px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    h1 {
+      font-size: 3em;
+      margin-top: 0;
+    }
+    p {
+      font-size: 1.2em;
+      line-height: 1.5;
+    }
+    .details {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
+      border-radius: 5px;
+      margin: 20px 0;
+      text-align: left;
+    }
+    button {
+      background: transparent;
+      color: white;
+      border: 2px solid white;
+      padding: 10px 20px;
+      font-size: 1em;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 20px;
+    }
+    button:hover {
+      background: white;
+      color: #cb2431;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚠️ Deceptive Site Ahead</h1>
+    <p><strong>PhishGuard</strong> has blocked access to this page because it exhibits strong indicators of being a phishing operation or is currently unreachable and flagged malicious.</p>
+    
+    <div class="details">
+      <strong>Risk Score:</strong> <span id="risk-score">Calculating...</span>%<br><br>
+      <strong>Target URL:</strong> <span id="target-url">...</span>
+    </div>
+
+    <button id="back-btn">Go Back to Safety</button>
+  </div>
+
+  <script src="blocked.js"></script>
+</body>
+</html>

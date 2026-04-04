@@ -2,7 +2,7 @@ document.getElementById("checkBtn").addEventListener("click", () => {
 
   const url = document.getElementById("url").value;
 
-  fetch("http://127.0.0.1:5000/predict/url", {
+  fetch("http://127.0.0.1:5001/predict/url", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

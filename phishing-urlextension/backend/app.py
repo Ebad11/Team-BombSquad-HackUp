@@ -1,79 +1,11 @@
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import joblib
-import pandas as pd
-import re
-import math
-import os
-import whois
-from datetime import datetime
 
 app = Flask(__name__)
 
 # ✅ FIXED CORS (important)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
-# ── Load Models ─────────────────────────────
-BASE = os.path.dirname(os.path.abspath(__file__))
-MODELS = os.path.join(BASE, "phishing_models")
-
-url_model  = joblib.load(os.path.join(MODELS, "url_model.pkl"))
-url_scaler = joblib.load(os.path.join(MODELS, "url_scaler.pkl"))
-
-print("✅ Models Loaded")
-
-# ── Feature Functions ───────────────────────
-def calculate_entropy(text):
-    if not text:
-        return 0.0
-    freq = {}
-    for ch in text:
-        freq[ch] = freq.get(ch, 0) + 1
-    n = len(text)
-    return round(-sum((c/n) * math.log2(c/n) for c in freq.values()), 4)
-
-def extract_url_features(url):
-    url = str(url).lower()
-
-    return {
-        "url_length": len(url),
-        "num_dots": url.count("."),
-        "num_hyphens": url.count("-"),
-        "num_digits": sum(c.isdigit() for c in url),
-        "has_https": int(url.startswith("https")),
-        "has_ip_address": int(bool(re.search(r'\d+\.\d+\.\d+\.\d+', url))),
-        "suspicious_keywords": sum(k in url for k in ["login","verify","bank","secure"]),
-        "num_subdomains": max(0, url.count(".") - 1),
-        "path_length": len(url.split("/")[-1]),
-        "entropy": calculate_entropy(url)
-    }
-
-# ── WHOIS + Domain Info ─────────────────────
-def get_domain_info(url):
-    try:
-        domain = url.split("//")[-1].split("/")[0]
-
-        w = whois.whois(domain)
-
-        creation = w.creation_date
-        if isinstance(creation, list):
-            creation = creation[0]
-
-        age_days = None
-        if creation:
-            age_days = (datetime.now() - creation).days
-
-        return {
-            "domain": domain,
-            "age_days": age_days,
-            "country": str(w.country)
-        }
-
-    except Exception as e:
-        return {
-            "domain": domain,
-            "error": "WHOIS lookup failed"
-        }
 
 # ── API Route ───────────────────────────────
 @app.route("/predict/url", methods=["POST"])
@@ -85,28 +17,41 @@ def predict_url():
 
     url = data["url"]
 
-    features = extract_url_features(url)
-    df = pd.DataFrame([features])
-    scaled = url_scaler.transform(df)
+    try:
+        # Proxy the request to the new phishing_models backend running on port 5000
+        response = requests.post("http://127.0.0.1:5000/predict/url", json={"url": url}, timeout=10)
+        response.raise_for_status()
+        main_data = response.json()
+        
+        # phishing_models returns "prediction": "phishing" | "legitimate"
+        is_phishing = (main_data.get("prediction") == "phishing")
+        prediction = "phishing" if is_phishing else "safe"
+        
+        # phishing_models returns "phishing_prob": float (0.0 to 1.0)
+        confidence = round(main_data.get("phishing_prob", 0) * 100, 2)
+        
+        # Support both old and new response spec for backward compatibility
+        return jsonify({
+            "prediction": prediction,
+            "confidence": confidence,
+            "features": {},      # Extension might expect these keys
+            "domain_info": {},
+            
+            # New Pre-Load Real-Time Detection fields
+            "is_phishing": is_phishing,
+            "risk_score": confidence,
+            "reasons": main_data.get("top_signals", main_data.get("signals", []))
+        })
 
-    pred = int(url_model.predict(scaled)[0])
-    prob = url_model.predict_proba(scaled)[0]
-    confidence = round(float(prob[pred]) * 100, 2)
-
-    domain_info = get_domain_info(url)
-
-    return jsonify({
-        "prediction": "phishing" if pred == 1 else "safe",
-        "confidence": confidence,
-        "features": features,
-        "domain_info": domain_info
-    })
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed to call phishing-models backend: {str(e)}"}), 500
 
 # ── Test Route (IMPORTANT FOR BROWSER CHECK) ──
 @app.route("/")
 def home():
-    return "🚀 Phishing Detection API is Running!"
+    return "🚀 Phishing Detection Proxy API is Running!"
 
 # ── Run ─────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Running on 5001 so it doesn't conflict with phishing_models on 5000
+    app.run(port=5001, debug=True)
